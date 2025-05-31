@@ -194,7 +194,7 @@ pub enum RequestError {
         source: Box<ureq::Transport>,
     },
     #[error(transparent)]
-    Status(PrettyHttpError),
+    Status(StatusError),
     #[error("failed to deserialize response body from {method} request to {url}")]
     Deserialize {
         method: Method,

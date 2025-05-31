@@ -116,7 +116,7 @@ impl Retrier {
         match resp {
             Ok(r) => Ok(RetryDecision::Success(r)),
             Err(ureq::Error::Status(_, r)) => {
-                Err(RequestError::Status(PrettyHttpError::new(self.method, r)))
+                Err(RequestError::Status(StatusError::new(self.method, r)))
             }
             Err(ureq::Error::Transport(source)) => Err(RequestError::Send {
                 method: self.method,
@@ -127,7 +127,7 @@ impl Retrier {
     }
 
     fn finalize_parts<T>(&self, parts: ResponseParts) -> Result<T, RequestError> {
-        Err(RequestError::Status(PrettyHttpError::from_parts(
+        Err(RequestError::Status(StatusError::from_parts(
             self.method,
             self.url.clone(),
             parts,
@@ -211,15 +211,15 @@ impl ResponseParts {
 /// Error raised for a 4xx or 5xx HTTP response that includes the response body
 /// — and, if that body is JSON, it's pretty-printed
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PrettyHttpError {
+pub struct StatusError {
     method: Method,
     url: String,
     status: u16,
     body: Option<String>,
 }
 
-impl PrettyHttpError {
-    pub(super) fn new(method: Method, r: Response) -> PrettyHttpError {
+impl StatusError {
+    pub(super) fn new(method: Method, r: Response) -> StatusError {
         let url = r.get_url().to_owned();
         let status = r.status();
         // If the response body is JSON, pretty-print it.
@@ -230,7 +230,7 @@ impl PrettyHttpError {
         } else {
             r.into_string().ok()
         };
-        PrettyHttpError {
+        StatusError {
             method,
             url,
             status,
@@ -238,7 +238,7 @@ impl PrettyHttpError {
         }
     }
 
-    fn from_parts(method: Method, url: Url, parts: ResponseParts) -> PrettyHttpError {
+    fn from_parts(method: Method, url: Url, parts: ResponseParts) -> StatusError {
         let status = parts.status;
         // If the response body is JSON, pretty-print it.
         let body = if parts
@@ -255,7 +255,7 @@ impl PrettyHttpError {
         } else {
             parts.text
         };
-        PrettyHttpError {
+        StatusError {
             method,
             url: url.into(),
             status,
@@ -268,7 +268,7 @@ impl PrettyHttpError {
     }
 }
 
-impl fmt::Display for PrettyHttpError {
+impl fmt::Display for StatusError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -284,7 +284,7 @@ impl fmt::Display for PrettyHttpError {
     }
 }
 
-impl std::error::Error for PrettyHttpError {}
+impl std::error::Error for StatusError {}
 
 /// Return the `rel="next"` URL, if any, from the response's "Link" header
 pub(super) fn get_next_link(r: &Response) -> Option<Url> {
