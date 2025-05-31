@@ -52,6 +52,15 @@ impl GitHub {
         }
     }
 
+    fn mkurl(&self, path: &str) -> Result<Url, RequestError> {
+        self.api_url
+            .join(path)
+            .map_err(|source| RequestError::Path {
+                source,
+                path: path.to_owned(),
+            })
+    }
+
     pub fn raw_request<T: Serialize>(
         &self,
         method: Method,
@@ -104,9 +113,10 @@ impl GitHub {
     pub fn request<T: Serialize, U: DeserializeOwned>(
         &self,
         method: Method,
-        url: Url,
+        path: &str,
         payload: Option<&T>,
     ) -> Result<U, RequestError> {
+        let url = self.mkurl(path)?;
         let r = self.raw_request::<T>(method, url.clone(), payload)?;
         match r.into_json::<U>() {
             Ok(val) => Ok(val),
@@ -118,28 +128,37 @@ impl GitHub {
         }
     }
 
-    pub fn get<T: DeserializeOwned>(&self, url: Url) -> Result<T, RequestError> {
-        self.request::<(), T>(Method::Get, url, None)
+    pub fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, RequestError> {
+        self.request::<(), T>(Method::Get, path, None)
     }
 
     pub fn post<T: Serialize, U: DeserializeOwned>(
         &self,
-        url: Url,
+        path: &str,
         payload: &T,
     ) -> Result<U, RequestError> {
-        self.request::<T, U>(Method::Post, url, Some(payload))
+        self.request::<T, U>(Method::Post, path, Some(payload))
+    }
+
+    pub fn put<T: Serialize, U: DeserializeOwned>(
+        &self,
+        path: &str,
+        payload: &T,
+    ) -> Result<U, RequestError> {
+        self.request::<T, U>(Method::Put, path, Some(payload))
     }
 
     pub fn patch<T: Serialize, U: DeserializeOwned>(
         &self,
-        url: Url,
+        path: &str,
         payload: &T,
     ) -> Result<U, RequestError> {
-        self.request::<T, U>(Method::Patch, url, Some(payload))
+        self.request::<T, U>(Method::Patch, path, Some(payload))
     }
 
-    pub fn paginate<T: DeserializeOwned>(&self, mut url: Url) -> Result<Vec<T>, RequestError> {
+    pub fn paginate<T: DeserializeOwned>(&self, path: &str) -> Result<Vec<T>, RequestError> {
         let mut items = Vec::new();
+        let mut url = self.mkurl(path)?;
         loop {
             let r = self.raw_request::<()>(Method::Get, url.clone(), None)?;
             let next_url = get_next_link(&r);
@@ -163,6 +182,11 @@ impl GitHub {
 
 #[derive(Debug, Error)]
 pub enum RequestError {
+    #[error("failed to construct a GitHub API URL from path {path:?}")]
+    Path {
+        source: url::ParseError,
+        path: String,
+    },
     #[error("failed to make {method} request to {url}")]
     Send {
         method: Method,

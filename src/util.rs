@@ -301,58 +301,8 @@ fn is_json_content_type(ct_value: &str) -> bool {
     })
 }
 
-pub(super) fn urljoin<I>(url: &Url, segments: I) -> Url
-where
-    I: IntoIterator,
-    I::Item: AsRef<str>,
-{
-    let mut url = url.clone();
-    url.path_segments_mut()
-        .expect("API URL should be able to be a base")
-        .pop_if_empty()
-        .extend(segments);
-    url
-}
-
 fn time_till_timestamp(ts: u64) -> Option<Duration> {
     (UNIX_EPOCH + Duration::from_secs(ts))
         .duration_since(SystemTime::now())
         .ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rstest::rstest;
-
-    #[rstest]
-    #[case("https://api.github.com")]
-    #[case("https://api.github.com/")]
-    fn test_urljoin_nopath(#[case] base: Url) {
-        let u = urljoin(&base, ["foo"]);
-        assert_eq!(u.as_str(), "https://api.github.com/foo");
-        let u = urljoin(&base, ["foo", "bar"]);
-        assert_eq!(u.as_str(), "https://api.github.com/foo/bar");
-    }
-
-    #[rstest]
-    #[case("https://api.github.com/foo/bar")]
-    #[case("https://api.github.com/foo/bar/")]
-    fn test_urljoin_path(#[case] base: Url) {
-        let u = urljoin(&base, ["gnusto"]);
-        assert_eq!(u.as_str(), "https://api.github.com/foo/bar/gnusto");
-        let u = urljoin(&base, ["gnusto", "cleesh"]);
-        assert_eq!(u.as_str(), "https://api.github.com/foo/bar/gnusto/cleesh");
-    }
-
-    #[rstest]
-    #[case("foo#bar", "https://api.github.com/base/foo%23bar")]
-    #[case("foo%bar", "https://api.github.com/base/foo%25bar")]
-    #[case("foo/bar", "https://api.github.com/base/foo%2Fbar")]
-    #[case("foo?bar", "https://api.github.com/base/foo%3Fbar")]
-    fn test_urljoin_special_chars(#[case] path: &str, #[case] expected: &str) {
-        let base = Url::parse("https://api.github.com/base").unwrap();
-        let u = urljoin(&base, [path]);
-        assert_eq!(u.as_str(), expected);
-    }
 }
