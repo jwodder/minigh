@@ -262,6 +262,10 @@ impl PrettyHttpError {
             body,
         }
     }
+
+    pub fn body(&self) -> Option<&str> {
+        self.body.as_deref()
+    }
 }
 
 impl fmt::Display for PrettyHttpError {
@@ -271,8 +275,10 @@ impl fmt::Display for PrettyHttpError {
             "{} request to {} returned {}",
             self.method, self.url, self.status
         )?;
-        if let Some(text) = &self.body {
-            write!(indented(f).with_str("    "), "\n\n{text}\n")?;
+        if f.alternate() {
+            if let Some(text) = self.body().filter(|s| !s.is_empty()) {
+                write!(indented(f).with_str("    "), "\n\n{text}\n")?;
+            }
         }
         Ok(())
     }
