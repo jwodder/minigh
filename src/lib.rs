@@ -156,6 +156,12 @@ impl GitHub {
         self.request::<T, U>(Method::Patch, path, Some(payload))
     }
 
+    pub fn delete(&self, path: &str) -> Result<(), RequestError> {
+        let url = self.mkurl(path)?;
+        self.raw_request::<()>(Method::Delete, url, None)?;
+        Ok(())
+    }
+
     pub fn paginate<T: DeserializeOwned>(&self, path: &str) -> Result<Vec<T>, RequestError> {
         let mut items = Vec::new();
         let mut url = self.mkurl(path)?;
