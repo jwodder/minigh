@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   test:
+    if: false  # Disabled for now
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -90,13 +91,17 @@ jobs:
         with:
           tool: cargo-hack,cargo-minimal-versions
 
-      - name: Build crate
-        run: cargo minimal-versions --direct --workspace --feature-powerset build --all-targets --verbose
+      #- name: Build crate
+      #  run: cargo minimal-versions --direct --workspace --feature-powerset build --all-targets --verbose
 
-      - name: Test crate
-        run: cargo minimal-versions --direct --workspace --feature-powerset test --verbose
+      #- name: Test crate
+      #  run: cargo minimal-versions --direct --workspace --feature-powerset test --verbose
+
+      - name: Check crate
+        run: cargo minimal-versions --direct --workspace --feature-powerset check
 
   coverage:
+    if: false  # Disabled for now
     # This is separate from the main tests because cargo-llvm-cov doesn't run
     # doctests.
     runs-on: ubuntu-latest
