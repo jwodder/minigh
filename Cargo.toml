@@ -7,9 +7,8 @@ description = "Minimal GitHub REST API client"
 authors = ["John Thorvald Wodder II <minigh@varonathe.org>"]
 repository = "https://github.com/jwodder/minigh"
 license = "MIT"
-keywords = []
-# See <https://crates.io/category_slugs> for a list of categories
-categories = []
+keywords = ["GitHub", "client", "REST API"]
+categories = ["api-bindings", "web-programming::http-client"]
 exclude = ["/.*"]
 
 [dependencies]
