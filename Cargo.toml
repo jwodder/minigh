@@ -1,12 +1,23 @@
-[package]
-name = "minigh"
-version = "0.1.0-dev"
+[workspace]
+members = ["examples/*"]
+resolver = "2"
+
+[workspace.package]
 edition = "2021"
 rust-version = "1.81"
-description = "Minimal GitHub REST API client"
 authors = ["John Thorvald Wodder II <minigh@varonathe.org>"]
 repository = "https://github.com/jwodder/minigh"
 license = "MIT"
+
+[package]
+name = "minigh"
+version = "0.1.0-dev"
+edition.workspace = true
+rust-version.workspace = true
+description = "Minimal GitHub REST API client"
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
 keywords = ["GitHub", "client", "REST API"]
 categories = ["api-bindings", "web-programming::http-client"]
 exclude = ["/.*"]
@@ -24,7 +35,10 @@ url = "2.5.4"
 [dev-dependencies]
 rstest = { version = "0.25.0", default-features = false }
 
-[lints.rust]
+[lints]
+workspace = true
+
+[workspace.lints.rust]
 # Lint groups:
 deprecated_safe = { level = "deny", priority = -1 }
 future_incompatible = { level = "deny", priority = -1 }
@@ -99,7 +113,7 @@ unused_associated_type_bounds = "deny"
 unused_comparisons = "deny"
 while_true = "deny"
 
-[lints.rustdoc]
+[workspace.lints.rustdoc]
 bare_urls = "deny"
 broken_intra_doc_links = "deny"
 invalid_codeblock_attributes = "deny"
@@ -109,7 +123,7 @@ private_intra_doc_links = "deny"
 redundant_explicit_links = "deny"
 unescaped_backticks = "deny"
 
-[lints.clippy]
+[workspace.lints.clippy]
 # Deny all warn-by-default lints:
 all = { level = "deny", priority = -1 }
 
