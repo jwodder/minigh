@@ -22,19 +22,19 @@ static GITHUB_API_URL: &str = "https://api.github.com";
 const MUTATION_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug)]
-pub struct GitHub {
-    client: Agent,
+pub struct Client {
+    inner: Agent,
     api_url: Url,
     last_mutation: Cell<Option<Instant>>,
 }
 
-impl GitHub {
-    pub fn new(token: &str) -> GitHub {
+impl Client {
+    pub fn new(token: &str) -> Client {
         let Ok(api_url) = Url::parse(GITHUB_API_URL) else {
             unreachable!("GITHUB_API_URL should be a valid URL");
         };
         let auth = format!("Bearer {token}");
-        let client = AgentBuilder::new()
+        let inner = AgentBuilder::new()
             .user_agent(USER_AGENT)
             .https_only(true)
             .middleware(move |req: ureq::Request, next: ureq::MiddlewareNext<'_>| {
@@ -45,8 +45,8 @@ impl GitHub {
                 )
             })
             .build();
-        GitHub {
-            client,
+        Client {
+            inner,
             api_url,
             last_mutation: Cell::new(None),
         }
@@ -77,7 +77,7 @@ impl GitHub {
                 }
             }
         }
-        let req = self.client.request_url(method.as_str(), &url);
+        let req = self.inner.request_url(method.as_str(), &url);
         //let mut retrier = Retrier::new(method, url.clone());
         let mut retrier = Retrier::new(method, url);
         loop {
