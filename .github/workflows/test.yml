@@ -14,7 +14,6 @@ concurrency:
 
 jobs:
   test:
-    if: false  # Disabled for now
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -61,11 +60,14 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
 
-      - name: Build crate
-        run: cargo hack --workspace --feature-powerset build --all-targets --verbose
+      #- name: Build crate
+      #  run: cargo hack --workspace --feature-powerset build --all-targets --verbose
 
-      - name: Test crate
-        run: cargo hack --workspace --feature-powerset test --verbose
+      #- name: Test crate
+      #  run: cargo hack --workspace --feature-powerset test --verbose
+
+      - name: Check crate
+        run: cargo hack --workspace --feature-powerset check
 
   minimal-versions:
     runs-on: ubuntu-latest
