@@ -33,7 +33,13 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let client = Client::new(&token);
+    let client = match Client::new(&token) {
+        Ok(client) => client,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
     let mut first = true;
     match client.paginate::<Repository>(&format!("/users/{}/repos", args.owner)) {
         Ok(repos) => {
