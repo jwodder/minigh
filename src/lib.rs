@@ -275,6 +275,16 @@ pub enum RequestError {
     },
 }
 
+impl RequestError {
+    pub fn body(&self) -> Option<&str> {
+        if let RequestError::Status(ref stat) = self {
+            stat.body()
+        } else {
+            None
+        }
+    }
+}
+
 /// Error raised for a 4xx or 5xx HTTP response that includes the response body
 /// — and, if that body is JSON, it's pretty-printed
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -302,7 +312,7 @@ impl StatusError {
             method,
             url,
             status,
-            body,
+            body: body.filter(|s| !s.is_empty()),
         }
     }
 
@@ -324,7 +334,7 @@ impl StatusError {
             method,
             url: url.to_string(),
             status,
-            body,
+            body: body.filter(|s| !s.is_empty()),
         }
     }
 
@@ -341,7 +351,7 @@ impl fmt::Display for StatusError {
             self.method, self.url, self.status
         )?;
         if f.alternate() {
-            if let Some(text) = self.body().filter(|s| !s.is_empty()) {
+            if let Some(text) = self.body() {
                 write!(indented(f).with_str("    "), "\n\n{text}\n")?;
             }
         }

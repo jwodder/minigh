@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
-use minigh::{Client, StatusError};
+use minigh::{Client, RequestError};
 use serde::{Deserialize, Serialize};
 use std::process::ExitCode;
 use url::Url;
@@ -80,12 +80,13 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("{e:?}");
-            if let Some(body) = e
-                .downcast_ref::<StatusError>()
-                .and_then(StatusError::body)
-                .filter(|s| !s.is_empty())
-            {
-                eprintln!("\n{body}");
+            for src in e.chain() {
+                if let Some(err) = src.downcast_ref::<RequestError>() {
+                    if let Some(body) = err.body() {
+                        eprintln!("\n{body}");
+                    }
+                    break;
+                }
             }
             ExitCode::FAILURE
         }
