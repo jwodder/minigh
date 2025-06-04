@@ -125,9 +125,9 @@ impl Retrier {
         resp: Result<Response<Body>, ureq::Error>,
     ) -> Result<RetryDecision, RequestError> {
         match resp {
-            Ok(r) if r.status().is_client_error() || r.status().is_server_error() => {
-                Err(RequestError::Status(StatusError::new(self.method, r)))
-            }
+            Ok(r) if r.status().is_client_error() || r.status().is_server_error() => Err(
+                RequestError::Status(StatusError::from_response(self.method, self.url.clone(), r)),
+            ),
             Ok(r) => Ok(RetryDecision::Success(r)),
             Err(source) => Err(RequestError::Send {
                 method: self.method,

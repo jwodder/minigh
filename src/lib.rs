@@ -13,7 +13,7 @@ use ureq::{
         status::StatusCode,
         Response,
     },
-    Agent, Body, ResponseExt,
+    Agent, Body,
 };
 use url::Url;
 
@@ -290,14 +290,13 @@ impl RequestError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StatusError {
     method: Method,
-    url: String,
+    url: Url,
     status: StatusCode,
     body: Option<String>,
 }
 
 impl StatusError {
-    fn new(method: Method, mut r: Response<Body>) -> StatusError {
-        let url = r.get_uri().to_string();
+    fn from_response(method: Method, url: Url, mut r: Response<Body>) -> StatusError {
         let status = r.status();
         // If the response body is JSON, pretty-print it.
         let body = if is_json_response(&r) {
@@ -332,7 +331,7 @@ impl StatusError {
         };
         StatusError {
             method,
-            url: url.to_string(),
+            url,
             status,
             body: body.filter(|s| !s.is_empty()),
         }
