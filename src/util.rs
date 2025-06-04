@@ -3,9 +3,9 @@ use mime::{Mime, JSON};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ureq::{
     http::{
-        header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE, LINK, RETRY_AFTER},
+        header::{HeaderName, CONTENT_TYPE, LINK, RETRY_AFTER},
+        response::{Parts, Response},
         status::StatusCode,
-        Response,
     },
     Body,
 };
@@ -75,8 +75,8 @@ impl Retrier {
         let backoff = Duration::from_secs_f64(backoff);
         let delay = match resp {
             Ok(r) if r.status() == StatusCode::FORBIDDEN => {
-                let parts = ResponseParts::from_response(r);
-                if let Some(v) = parts.header(RETRY_AFTER) {
+                let mut rr = ReadableResponse::new(self.method, self.url.clone(), r);
+                if let Some(v) = rr.header(RETRY_AFTER) {
                     let secs = v.parse::<u64>().ok().map(|n| n + 1);
                     /*
                     if secs.is_some() {
@@ -84,16 +84,12 @@ impl Retrier {
                     }
                     */
                     Duration::from_secs(secs.unwrap_or_default())
-                } else if parts
-                    .text
-                    .as_ref()
-                    .is_some_and(|s| s.contains("rate limit"))
-                {
-                    if parts
+                } else if rr.body().is_some_and(|s| s.contains("rate limit")) {
+                    if rr
                         .header(RATELIMIT_REMAINING_HEADER)
                         .is_some_and(|v| v == "0")
                     {
-                        if let Some(reset) = parts
+                        if let Some(reset) = rr
                             .header(RATELIMIT_RESET_HEADER)
                             .and_then(|s| s.parse::<u64>().ok())
                         {
@@ -107,7 +103,7 @@ impl Retrier {
                         backoff
                     }
                 } else {
-                    return self.finalize_parts(parts);
+                    return Err(RequestError::Status(StatusError::from(rr)));
                 }
             }
             Ok(r) if r.status().is_server_error() => backoff,
@@ -125,9 +121,11 @@ impl Retrier {
         resp: Result<Response<Body>, ureq::Error>,
     ) -> Result<RetryDecision, RequestError> {
         match resp {
-            Ok(r) if r.status().is_client_error() || r.status().is_server_error() => Err(
-                RequestError::Status(StatusError::from_response(self.method, self.url.clone(), r)),
-            ),
+            Ok(r) if r.status().is_client_error() || r.status().is_server_error() => {
+                Err(RequestError::Status(StatusError::from(
+                    ReadableResponse::new(self.method, self.url.clone(), r),
+                )))
+            }
             Ok(r) => Ok(RetryDecision::Success(r)),
             Err(source) => Err(RequestError::Send {
                 method: self.method,
@@ -135,14 +133,6 @@ impl Retrier {
                 source: Box::new(source),
             }),
         }
-    }
-
-    fn finalize_parts<T>(&self, parts: ResponseParts) -> Result<T, RequestError> {
-        Err(RequestError::Status(StatusError::from_parts(
-            self.method,
-            self.url.clone(),
-            parts,
-        )))
     }
 }
 
@@ -153,29 +143,80 @@ pub(super) enum RetryDecision {
     Retry(Duration),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ResponseParts {
-    pub(super) status: StatusCode,
-    pub(super) headers: HeaderMap<HeaderValue>,
-    pub(super) text: Option<String>,
+#[derive(Debug)]
+pub(super) struct ReadableResponse {
+    method: Method,
+    url: Url,
+    parts: Parts,
+    body: ReadableBody,
 }
 
-impl ResponseParts {
-    fn from_response(r: Response<Body>) -> ResponseParts {
-        let (parts, mut body) = r.into_parts();
-        let status = parts.status;
-        let headers = parts.headers;
-        let text = body.read_to_string().ok();
-        ResponseParts {
-            status,
-            headers,
-            text,
+impl ReadableResponse {
+    fn new(method: Method, url: Url, resp: Response<Body>) -> Self {
+        let (parts, body) = resp.into_parts();
+        ReadableResponse {
+            method,
+            url,
+            parts,
+            body: ReadableBody::Unread(body),
         }
     }
 
-    pub(super) fn header(&self, key: HeaderName) -> Option<&str> {
-        let v = self.headers.get(&key)?;
+    fn header(&self, key: HeaderName) -> Option<&str> {
+        let v = self.parts.headers.get(&key)?;
         v.to_str().ok()
+    }
+
+    fn body(&mut self) -> Option<&str> {
+        self.body.as_str()
+    }
+
+    fn pretty_body(&mut self) -> Option<String> {
+        if self.header(CONTENT_TYPE).is_some_and(is_json_content_type) {
+            self.body
+                .as_str()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                .map(|v| {
+                    serde_json::to_string_pretty(&v)
+                        .expect("Re-JSONifying a JSON response should not fail")
+                })
+        } else {
+            self.body
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned)
+        }
+    }
+}
+
+impl From<ReadableResponse> for StatusError {
+    fn from(mut value: ReadableResponse) -> StatusError {
+        let body = value.pretty_body();
+        StatusError {
+            method: value.method,
+            url: value.url,
+            status: value.parts.status,
+            body,
+        }
+    }
+}
+
+#[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
+enum ReadableBody {
+    Unread(Body),
+    Read(Option<String>),
+}
+
+impl ReadableBody {
+    fn as_str(&mut self) -> Option<&str> {
+        if let ReadableBody::Unread(ref mut body) = self {
+            *self = ReadableBody::Read(body.read_to_string().ok());
+        }
+        let ReadableBody::Read(ref s) = self else {
+            unreachable!("ReadableBody should be Read after reading");
+        };
+        s.as_deref()
     }
 }
 
@@ -188,16 +229,7 @@ pub(super) fn get_next_link(r: &Response<Body>) -> Option<Url> {
         .map(|link| link.uri.clone())
 }
 
-/// Returns `true` iff the response's Content-Type header indicates the body is
-/// JSON
-pub(super) fn is_json_response(r: &Response<Body>) -> bool {
-    r.headers()
-        .get(CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(is_json_content_type)
-}
-
-pub(super) fn is_json_content_type(ct_value: &str) -> bool {
+fn is_json_content_type(ct_value: &str) -> bool {
     ct_value.parse::<Mime>().ok().is_some_and(|ct| {
         ct.type_() == "application" && (ct.subtype() == "json" || ct.suffix() == Some(JSON))
     })

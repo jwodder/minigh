@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use ureq::{
     http::{
-        header::{HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE},
+        header::{HeaderName, HeaderValue, AUTHORIZATION},
         status::StatusCode,
         Response,
     },
@@ -296,47 +296,6 @@ pub struct StatusError {
 }
 
 impl StatusError {
-    fn from_response(method: Method, url: Url, mut r: Response<Body>) -> StatusError {
-        let status = r.status();
-        // If the response body is JSON, pretty-print it.
-        let body = if is_json_response(&r) {
-            r.body_mut().read_json::<serde_json::Value>().ok().map(|v| {
-                serde_json::to_string_pretty(&v)
-                    .expect("Re-JSONifying a JSON response should not fail")
-            })
-        } else {
-            r.body_mut().read_to_string().ok()
-        };
-        StatusError {
-            method,
-            url,
-            status,
-            body: body.filter(|s| !s.is_empty()),
-        }
-    }
-
-    fn from_parts(method: Method, url: Url, parts: ResponseParts) -> StatusError {
-        let status = parts.status;
-        // If the response body is JSON, pretty-print it.
-        let body = if parts.header(CONTENT_TYPE).is_some_and(is_json_content_type) {
-            parts
-                .text
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-                .map(|v| {
-                    serde_json::to_string_pretty(&v)
-                        .expect("Re-JSONifying a JSON response should not fail")
-                })
-        } else {
-            parts.text
-        };
-        StatusError {
-            method,
-            url,
-            status,
-            body: body.filter(|s| !s.is_empty()),
-        }
-    }
-
     pub fn body(&self) -> Option<&str> {
         self.body.as_deref()
     }
