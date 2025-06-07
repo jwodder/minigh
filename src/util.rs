@@ -60,7 +60,8 @@ impl Retrier {
             return self.finalize(resp);
         }
         let now = Instant::now();
-        if now > self.stop_time {
+        let time_left = self.stop_time.saturating_duration_since(now);
+        if time_left == Duration::ZERO {
             log::debug!("Maximum total retry wait time exceeded");
             return self.finalize(resp);
         }
@@ -78,8 +79,12 @@ impl Retrier {
                 let mut rr = ReadableResponse::new(self.method, self.url.clone(), r);
                 if let Some(v) = rr.header(RETRY_AFTER) {
                     let secs = v.parse::<u64>().ok().map(|n| n + 1);
-                    if secs.is_some() {
+                    if let Some(delay) = secs {
                         log::debug!("Server responded with 403 and Retry-After header");
+                        if time_left < Duration::from_secs(delay) {
+                            log::debug!("Retrying after Retry-After would exceed maximum total retry wait time; not retrying");
+                            return Err(RequestError::Status(StatusError::from(rr)));
+                        }
                     }
                     Duration::from_secs(secs.unwrap_or_default())
                 } else if rr.body().is_some_and(|s| s.contains("rate limit")) {
@@ -91,8 +96,15 @@ impl Retrier {
                             .header(RATELIMIT_RESET_HEADER)
                             .and_then(|s| s.parse::<u64>().ok())
                         {
-                            log::debug!("Primary rate limit exceeded; waiting for reset");
-                            time_till_timestamp(reset).unwrap_or_default() + Duration::from_secs(1)
+                            let delay = time_till_timestamp(reset).unwrap_or_default()
+                                + Duration::from_secs(1);
+                            if time_left < delay {
+                                log::debug!("Primary rate limit exceeded; waiting for reset would exceed maximum total retry wait time; not retrying");
+                                return Err(RequestError::Status(StatusError::from(rr)));
+                            } else {
+                                log::debug!("Primary rate limit exceeded; waiting for reset");
+                            }
+                            delay
                         } else {
                             Duration::ZERO
                         }
@@ -109,9 +121,7 @@ impl Retrier {
             Err(_) => backoff,
             Ok(_) => return self.finalize(resp),
         };
-        let delay = delay.max(backoff);
-        let time_left = self.stop_time.saturating_duration_since(Instant::now());
-        Ok(RetryDecision::Retry(delay.clamp(Duration::ZERO, time_left)))
+        Ok(RetryDecision::Retry(delay.min(time_left)))
     }
 
     fn finalize(
