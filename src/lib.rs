@@ -93,7 +93,7 @@ impl Client {
                 let delay = MUTATION_DELAY
                     .saturating_sub(Instant::now().saturating_duration_since(lastmut));
                 if !delay.is_zero() {
-                    //log::trace!("Sleeping for {delay:?} between mutating requests");
+                    log::debug!("Sleeping for {delay:?} between mutating requests");
                     sleep(delay);
                 }
             }
@@ -111,25 +111,20 @@ impl Client {
                 Method::Patch => self.inner.patch(url.as_str()),
                 Method::Delete => self.inner.delete(url.as_str()).force_send_body(),
             };
-            //log::trace!("{} {}", method.as_str(), url);
+            log::debug!("{method} {url}");
             let resp = if let Some(p) = payload {
                 req.send_json(p)
             } else {
                 req.send_empty()
             };
-            /*
-            let desc = match &resp {
-                Ok(_) => Cow::from("Request succeeded"),
-                Err(ureq::Error::Status(code, _)) => {
-                    Cow::from(format!("Server returned {code} response"))
-                }
-                Err(e) => Cow::from(format!("Request failed: {e}")),
+            match &resp {
+                Ok(r) => log::debug!("Server returned {}", r.status()),
+                Err(e) => log::debug!("Request failed: {e}"),
             };
-            */
             match retrier.handle(resp)? {
                 RetryDecision::Success(r) => return Ok(r),
                 RetryDecision::Retry(delay) => {
-                    //log::warn!("{desc}; waiting {delay:?} and retrying");
+                    log::debug!("Waiting {delay:?} and then retrying request");
                     sleep(delay);
                 }
             }
