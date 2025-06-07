@@ -82,7 +82,7 @@ impl Client {
             })
     }
 
-    pub fn raw_request<T: Serialize>(
+    pub fn request<T: Serialize>(
         &self,
         method: Method,
         url: Url,
@@ -131,14 +131,14 @@ impl Client {
         }
     }
 
-    pub fn request<T: Serialize, U: DeserializeOwned>(
+    pub fn request_json<T: Serialize, U: DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
         payload: Option<&T>,
     ) -> Result<U, RequestError> {
         let url = self.mkurl(path)?;
-        let mut r = self.raw_request::<T>(method, url.clone(), payload)?;
+        let mut r = self.request::<T>(method, url.clone(), payload)?;
         match r.body_mut().read_json::<U>() {
             Ok(val) => Ok(val),
             Err(source) => Err(RequestError::Deserialize {
@@ -150,7 +150,7 @@ impl Client {
     }
 
     pub fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, RequestError> {
-        self.request::<(), T>(Method::Get, path, None)
+        self.request_json::<(), T>(Method::Get, path, None)
     }
 
     pub fn post<T: Serialize, U: DeserializeOwned>(
@@ -158,7 +158,7 @@ impl Client {
         path: &str,
         payload: &T,
     ) -> Result<U, RequestError> {
-        self.request::<T, U>(Method::Post, path, Some(payload))
+        self.request_json::<T, U>(Method::Post, path, Some(payload))
     }
 
     pub fn put<T: Serialize, U: DeserializeOwned>(
@@ -166,7 +166,7 @@ impl Client {
         path: &str,
         payload: &T,
     ) -> Result<U, RequestError> {
-        self.request::<T, U>(Method::Put, path, Some(payload))
+        self.request_json::<T, U>(Method::Put, path, Some(payload))
     }
 
     pub fn patch<T: Serialize, U: DeserializeOwned>(
@@ -174,12 +174,12 @@ impl Client {
         path: &str,
         payload: &T,
     ) -> Result<U, RequestError> {
-        self.request::<T, U>(Method::Patch, path, Some(payload))
+        self.request_json::<T, U>(Method::Patch, path, Some(payload))
     }
 
     pub fn delete(&self, path: &str) -> Result<(), RequestError> {
         let url = self.mkurl(path)?;
-        self.raw_request::<()>(Method::Delete, url, None)?;
+        self.request::<()>(Method::Delete, url, None)?;
         Ok(())
     }
 
@@ -187,7 +187,7 @@ impl Client {
         let mut items = Vec::new();
         let mut url = self.mkurl(path)?;
         loop {
-            let mut r = self.raw_request::<()>(Method::Get, url.clone(), None)?;
+            let mut r = self.request::<()>(Method::Get, url.clone(), None)?;
             let next_url = get_next_link(&r);
             match r.body_mut().read_json::<Vec<T>>() {
                 Ok(page) => items.extend(page),
