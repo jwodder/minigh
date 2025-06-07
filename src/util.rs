@@ -56,12 +56,12 @@ impl Retrier {
     ) -> Result<RetryDecision, RequestError> {
         self.attempts += 1;
         if self.attempts > RETRIES {
-            //log::trace!("Retries exhausted");
+            log::debug!("Retries exhausted");
             return self.finalize(resp);
         }
         let now = Instant::now();
         if now > self.stop_time {
-            //log::trace!("Maximum total retry wait time exceeded");
+            log::debug!("Maximum total retry wait time exceeded");
             return self.finalize(resp);
         }
         let backoff = if self.attempts < 2 {
@@ -78,11 +78,9 @@ impl Retrier {
                 let mut rr = ReadableResponse::new(self.method, self.url.clone(), r);
                 if let Some(v) = rr.header(RETRY_AFTER) {
                     let secs = v.parse::<u64>().ok().map(|n| n + 1);
-                    /*
                     if secs.is_some() {
-                        log::trace!("Server responded with 403 and Retry-After header");
+                        log::debug!("Server responded with 403 and Retry-After header");
                     }
-                    */
                     Duration::from_secs(secs.unwrap_or_default())
                 } else if rr.body().is_some_and(|s| s.contains("rate limit")) {
                     if rr
@@ -93,13 +91,13 @@ impl Retrier {
                             .header(RATELIMIT_RESET_HEADER)
                             .and_then(|s| s.parse::<u64>().ok())
                         {
-                            //log::trace!("Primary rate limit exceeded; waiting for reset");
+                            log::debug!("Primary rate limit exceeded; waiting for reset");
                             time_till_timestamp(reset).unwrap_or_default() + Duration::from_secs(1)
                         } else {
                             Duration::ZERO
                         }
                     } else {
-                        //log::trace!("Secondary rate limit triggered");
+                        log::debug!("Secondary rate limit triggered");
                         backoff
                     }
                 } else {

@@ -24,6 +24,7 @@ exclude = ["/.*"]
 
 [dependencies]
 indenter = "0.3.3"
+log = "0.4.27"
 mime = "0.3.17"
 parse_link_header = { version = "0.4.0", features = ["url"] }
 serde = "1.0.219"
