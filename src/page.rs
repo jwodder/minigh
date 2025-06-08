@@ -8,15 +8,15 @@ use url::Url;
 #[derive(Clone, Debug)]
 pub struct PaginationIter<'a, T> {
     client: &'a Client,
-    next_url: Option<Url>,
+    next_url: NextUrl,
     items: Option<std::vec::IntoIter<T>>,
 }
 
 impl<'a, T> PaginationIter<'a, T> {
-    pub fn new(client: &'a Client, url: Url) -> Self {
+    pub(super) fn new(client: &'a Client, path: &str) -> Self {
         PaginationIter {
             client,
-            next_url: Some(url),
+            next_url: NextUrl::Path(path.to_owned()),
             items: None,
         }
     }
@@ -35,30 +35,44 @@ where
             } else {
                 self.items = None;
             }
-            if let Some(url) = self.next_url.take() {
-                let mut resp = match self.client.request::<()>(Method::Get, url.clone(), None) {
-                    Ok(r) => r,
+            let url = match std::mem::replace(&mut self.next_url, NextUrl::None) {
+                NextUrl::Path(s) => match self.client.mkurl(&s) {
+                    Ok(url) => url,
                     Err(e) => return Some(Err(e)),
-                };
-                match resp.body_mut().read_json::<Page<T>>() {
-                    Ok(page) => self.items = Some(page.items.into_iter()),
-                    Err(source) => {
-                        return Some(Err(RequestError::Deserialize {
-                            method: Method::Get,
-                            url,
-                            source: Box::new(source),
-                        }))
-                    }
+                },
+                NextUrl::Url(url) => url,
+                NextUrl::None => return None,
+            };
+            let mut resp = match self.client.request::<()>(Method::Get, url.clone(), None) {
+                Ok(r) => r,
+                Err(e) => return Some(Err(e)),
+            };
+            match resp.body_mut().read_json::<Page<T>>() {
+                Ok(page) => self.items = Some(page.items.into_iter()),
+                Err(source) => {
+                    return Some(Err(RequestError::Deserialize {
+                        method: Method::Get,
+                        url,
+                        source: Box::new(source),
+                    }))
                 }
-                self.next_url = get_next_link(&resp);
-            } else {
-                return None;
             }
+            self.next_url = match get_next_link(&resp) {
+                Some(url) => NextUrl::Url(url),
+                None => NextUrl::None,
+            };
         }
     }
 }
 
 impl<T> std::iter::FusedIterator for PaginationIter<'_, T> where T: DeserializeOwned {}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum NextUrl {
+    Path(String),
+    Url(Url),
+    None,
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(bound = "T: DeserializeOwned", try_from = "RawPage<T>")]

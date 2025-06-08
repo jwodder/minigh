@@ -185,12 +185,8 @@ impl Client {
         Ok(())
     }
 
-    pub fn paginate<T: DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> Result<PaginationIter<'_, T>, RequestError> {
-        let url = self.mkurl(path)?;
-        Ok(PaginationIter::new(self, url))
+    pub fn paginate<T: DeserializeOwned>(&self, path: &str) -> PaginationIter<'_, T> {
+        PaginationIter::new(self, path)
     }
 }
 
