@@ -18,7 +18,7 @@ description = "Minimal and opinionated GitHub REST API client"
 authors.workspace = true
 repository.workspace = true
 license.workspace = true
-keywords = ["GitHub", "client", "REST API"]
+keywords = ["GitHub", "client", "REST-API"]
 categories = ["api-bindings", "web-programming::http-client"]
 exclude = ["/.*"]
 
