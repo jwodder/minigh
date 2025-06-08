@@ -35,7 +35,6 @@ url = "2.5.4"
 
 [dev-dependencies]
 indoc = "2.0.6"
-rstest = { version = "0.25.0", default-features = false }
 
 [lints]
 workspace = true

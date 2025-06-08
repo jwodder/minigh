@@ -495,3 +495,26 @@ impl fmt::Display for StatusError {
 }
 
 impl std::error::Error for StatusError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mkurl_slash() {
+        let client = Client::new("hunter2").unwrap();
+        assert_eq!(
+            client.mkurl("/foo/bar").unwrap().as_str(),
+            format!("{GITHUB_API_URL}/foo/bar")
+        );
+    }
+
+    #[test]
+    fn mkurl_no_slash() {
+        let client = Client::new("hunter2").unwrap();
+        assert_eq!(
+            client.mkurl("foo/bar").unwrap().as_str(),
+            format!("{GITHUB_API_URL}/foo/bar")
+        );
+    }
+}
