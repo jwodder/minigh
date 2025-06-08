@@ -1,9 +1,9 @@
-[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
+[![Project Status: Active – The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
 [![CI Status](https://github.com/jwodder/minigh/actions/workflows/test.yml/badge.svg)](https://github.com/jwodder/minigh/actions/workflows/test.yml)
 [![Minimum Supported Rust Version](https://img.shields.io/badge/MSRV-1.82-orange)](https://www.rust-lang.org)
 [![MIT License](https://img.shields.io/github/license/jwodder/minigh.svg)](https://opensource.org/licenses/MIT)
 
-[GitHub](https://github.com/jwodder/minigh) | [Issues](https://github.com/jwodder/minigh/issues)
+[GitHub](https://github.com/jwodder/minigh) | [crates.io](https://crates.io/crates/minigh) | [Documentation](https://docs.rs/minigh) | [Issues](https://github.com/jwodder/minigh/issues)
 
 `minigh` is a thin wrapper around [`ureq`](https://crates.io/crates/ureq) for
 interacting with the GitHub REST API that aims to make common operations easier
