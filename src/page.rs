@@ -5,6 +5,10 @@ use std::collections::HashMap;
 use thiserror::Error;
 use url::Url;
 
+/// An iterator that performs paginated GET requests and yields the returned
+/// items.
+///
+/// `PaginationIter` is returned from the [`Client::paginate()`] method.
 #[derive(Clone, Debug)]
 pub struct PaginationIter<'a, T> {
     client: &'a Client,

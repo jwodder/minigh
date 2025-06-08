@@ -11,21 +11,40 @@ use ureq::{
 };
 use url::Url;
 
-// Retry configuration:
+/// Maximum number of times to retry a request
 const RETRIES: i32 = 10;
+
+/// Multiplier for exponential backoff delays
 const BACKOFF_FACTOR: f64 = 1.0;
+
+/// Base value for exponential backoff delays
 const BACKOFF_BASE: f64 = 1.25;
+
+/// Maximum value of exponential backoff delays
 const BACKOFF_MAX: f64 = 120.0;
+
+/// Maximum amount of time to spend retrying a request
 const TOTAL_WAIT: Duration = Duration::from_secs(300);
 
+/// The name of the `X-Ratelimit-Remaining` header
 const RATELIMIT_REMAINING_HEADER: HeaderName = HeaderName::from_static("x-ratelimit-remaining");
+
+/// The name of the `X-Ratelimit-Reset` header
 const RATELIMIT_RESET_HEADER: HeaderName = HeaderName::from_static("x-ratelimit-reset");
 
+/// A struct for determining retries for a single request
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Retrier {
+    /// The HTTP method of the request
     method: Method,
+
+    /// The URL to which the request is being sent
     url: Url,
+
+    /// Which retry we're currently on
     attempts: i32,
+
+    /// Timestamp beyond which we should stop retrying
     stop_time: Instant,
 }
 
@@ -39,17 +58,19 @@ impl Retrier {
         }
     }
 
-    // Takes the return value of a call to `Request::call()` or similar.
-    //
-    // - If the request was successful (status code and everything), returns
-    //   `Ok(RetryDecision::Success(response))`.
-    //
-    // - If the request should be retried, returns
-    //   `Ok(RetryDecision::Retry(delay))`.
-    //
-    // - If the request was a failure (possibly due to status code) and should
-    //   not be retried (possibly due to all retries having been exhausted),
-    //   returns an `Err`.
+    /// Takes the return value of a call to
+    /// [`ureq::RequestBuilder::send_json()`] or similar and decides whether or
+    /// not to retry the request.
+    ///
+    /// - If the request was successful (status code and everything), returns
+    ///   `Ok(RetryDecision::Success(response))`.
+    ///
+    /// - If the request should be retried, returns
+    ///   `Ok(RetryDecision::Retry(delay))`.
+    ///
+    /// - If the request was a failure (possibly due to status code) and should
+    ///   not be retried (possibly due to all retries having been exhausted),
+    ///   returns an `Err` to return to the caller.
     pub(super) fn handle(
         &mut self,
         resp: Result<Response<Body>, ureq::Error>,
@@ -144,18 +165,30 @@ impl Retrier {
     }
 }
 
+/// Return type of [`Retrier::handle()`]
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub(super) enum RetryDecision {
+    /// Return the given response without retrying
     Success(Response<Body>),
+
+    /// Sleep for the given duration and then retry the request
     Retry(Duration),
 }
 
+/// A decomposed HTTP response that can read & store the response body.
 #[derive(Debug)]
 pub(super) struct ReadableResponse {
+    /// The HTTP method of the corresponding request
     method: Method,
+
+    /// The URL to which the corresponding request was made
     url: Url,
+
+    /// The [`http::response::Parts`] of the response
     parts: Parts,
+
+    /// The response body
     body: ReadableBody,
 }
 
@@ -170,15 +203,20 @@ impl ReadableResponse {
         }
     }
 
+    /// Returns the value of the given header as a string, if set and UTF-8
     fn header(&self, key: HeaderName) -> Option<&str> {
         let v = self.parts.headers.get(&key)?;
         v.to_str().ok()
     }
 
+    /// Returns the response body if it can be successfully read as a string
     fn body(&mut self) -> Option<&str> {
         self.body.as_str()
     }
 
+    /// Returns the response body if it can be successfully read as a string.
+    /// If the response's headers indicate the body is JSON, the body is
+    /// pretty-printed.
     fn pretty_body(&mut self) -> Option<String> {
         if self.header(CONTENT_TYPE).is_some_and(is_json_content_type) {
             self.body
@@ -209,14 +247,22 @@ impl From<ReadableResponse> for StatusError {
     }
 }
 
+/// A response body that may or may not have been read yet
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 enum ReadableBody {
+    /// A body that has not yet been read
     Unread(Body),
+
+    /// A body that has been read.  If the body was successfully read as a
+    /// string, this variant contains the string; otherwise, it contains
+    /// `None`.
     Read(Option<String>),
 }
 
 impl ReadableBody {
+    /// If the body has not been read yet, read & store it as a string.
+    /// Returns the read body.
     fn as_str(&mut self) -> Option<&str> {
         if let ReadableBody::Unread(ref mut body) = self {
             *self = ReadableBody::Read(body.read_to_string().ok());
@@ -237,12 +283,16 @@ pub(super) fn get_next_link(r: &Response<Body>) -> Option<Url> {
         .map(|link| link.uri.clone())
 }
 
+/// Given the value of a `Content-Type` header, returns `true` if the value
+/// is for a JSON payload
 fn is_json_content_type(ct_value: &str) -> bool {
     ct_value.parse::<Mime>().ok().is_some_and(|ct| {
         ct.type_() == "application" && (ct.subtype() == "json" || ct.suffix() == Some(JSON))
     })
 }
 
+/// Calculate the [`Duration`] until the system time is at the given number of
+/// seconds since the Unix epoch
 fn time_till_timestamp(ts: u64) -> Option<Duration> {
     (UNIX_EPOCH + Duration::from_secs(ts))
         .duration_since(SystemTime::now())
