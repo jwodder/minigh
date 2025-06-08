@@ -1,4 +1,6 @@
+mod page;
 mod util;
+pub use crate::page::*;
 use crate::util::*;
 use indenter::indented;
 use serde::{de::DeserializeOwned, Serialize};
@@ -183,27 +185,8 @@ impl Client {
         Ok(())
     }
 
-    pub fn paginate<T: DeserializeOwned>(&self, path: &str) -> Result<Vec<T>, RequestError> {
-        let mut items = Vec::new();
-        let mut url = self.mkurl(path)?;
-        loop {
-            let mut r = self.request::<()>(Method::Get, url.clone(), None)?;
-            let next_url = get_next_link(&r);
-            match r.body_mut().read_json::<Vec<T>>() {
-                Ok(page) => items.extend(page),
-                Err(source) => {
-                    return Err(RequestError::Deserialize {
-                        method: Method::Get,
-                        url,
-                        source: Box::new(source),
-                    })
-                }
-            }
-            match next_url {
-                Some(u) => url = u,
-                None => return Ok(items),
-            }
-        }
+    pub fn paginate<T: DeserializeOwned>(&self, path: &str) -> PaginationIter<'_, T> {
+        PaginationIter::new(self, path)
     }
 }
 

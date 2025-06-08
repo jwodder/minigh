@@ -30,8 +30,8 @@ impl Arguments {
         let token = gh_token::get().context("Failed to fetch GitHub token")?;
         let client = Client::new(&token)?;
         let mut first = true;
-        let repos = client.paginate::<Repository>(&format!("/users/{}/repos", self.owner))?;
-        for repo in repos {
+        for r in client.paginate::<Repository>(&format!("/users/{}/repos", self.owner)) {
+            let repo = r?;
             if self.json {
                 println!(
                     "{}",

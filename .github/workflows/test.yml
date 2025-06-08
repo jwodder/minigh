@@ -60,14 +60,11 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
 
-      #- name: Build crate
-      #  run: cargo hack --workspace --feature-powerset build --all-targets --verbose
+      - name: Build crate
+        run: cargo hack --workspace --feature-powerset build --all-targets --verbose
 
-      #- name: Test crate
-      #  run: cargo hack --workspace --feature-powerset test --verbose
-
-      - name: Check crate
-        run: cargo hack --workspace --feature-powerset check
+      - name: Test crate
+        run: cargo hack --workspace --feature-powerset test --verbose
 
   minimal-versions:
     runs-on: ubuntu-latest
@@ -93,14 +90,11 @@ jobs:
         with:
           tool: cargo-hack,cargo-minimal-versions
 
-      #- name: Build crate
-      #  run: cargo minimal-versions --direct --workspace --feature-powerset build --all-targets --verbose
+      - name: Build crate
+        run: cargo minimal-versions --direct --workspace --feature-powerset build --all-targets --verbose
 
-      #- name: Test crate
-      #  run: cargo minimal-versions --direct --workspace --feature-powerset test --verbose
-
-      - name: Check crate
-        run: cargo minimal-versions --direct --workspace --feature-powerset check
+      - name: Test crate
+        run: cargo minimal-versions --direct --workspace --feature-powerset test --verbose
 
   coverage:
     if: false  # Disabled for now
