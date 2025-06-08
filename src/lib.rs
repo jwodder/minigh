@@ -382,6 +382,73 @@ impl fmt::Display for Method {
     }
 }
 
+impl std::str::FromStr for Method {
+    type Err = ParseMethodError;
+
+    /// Parse a method from its name, case insensitive
+    fn from_str(s: &str) -> Result<Method, ParseMethodError> {
+        match s.to_ascii_uppercase().as_str() {
+            "GET" => Ok(Method::Get),
+            //"HEAD" => Ok(Method::Head),
+            "POST" => Ok(Method::Post),
+            "PUT" => Ok(Method::Put),
+            "PATCH" => Ok(Method::Patch),
+            "DELETE" => Ok(Method::Delete),
+            _ => Err(ParseMethodError),
+        }
+    }
+}
+
+impl From<Method> for ureq::http::Method {
+    /// Convert a `Method` to an [`ureq::http::Method`]
+    fn from(value: Method) -> ureq::http::Method {
+        match value {
+            Method::Get => ureq::http::Method::GET,
+            //Method::Head => ureq::http::Method::HEAD,
+            Method::Post => ureq::http::Method::POST,
+            Method::Put => ureq::http::Method::PUT,
+            Method::Patch => ureq::http::Method::PATCH,
+            Method::Delete => ureq::http::Method::DELETE,
+        }
+    }
+}
+
+impl TryFrom<ureq::http::Method> for Method {
+    type Error = MethodConvertError;
+
+    /// Convert an [`ureq::http::Method`] to a `Method`
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the input method does not correspond to one of the
+    /// variants of `Method`.
+    fn try_from(value: ureq::http::Method) -> Result<Method, MethodConvertError> {
+        match value {
+            ureq::http::Method::GET => Ok(Method::Get),
+            //ureq::http::Method::HEAD => Ok(Method::Head),
+            ureq::http::Method::POST => Ok(Method::Post),
+            ureq::http::Method::PUT => Ok(Method::Put),
+            ureq::http::Method::PATCH => Ok(Method::Patch),
+            ureq::http::Method::DELETE => Ok(Method::Delete),
+            other => Err(MethodConvertError(other)),
+        }
+    }
+}
+
+/// Error returned by [`Method`]'s `FromStr` implementation
+#[derive(Clone, Copy, Debug, Eq, Error, Hash, PartialEq)]
+#[error("invalid method name")]
+pub struct ParseMethodError;
+
+/// Error returned when trying to convert an [`ureq::http::Method`] that does
+/// not exist in [`Method`] to the latter type
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+#[error("method {0} is not supported by ghreq")]
+pub struct MethodConvertError(
+    /// The input [`ureq::http::Method`] that could not be converted
+    pub ureq::http::Method,
+);
+
 /// Error returned when constructing a `Client` fails
 #[derive(Debug, Error)]
 pub enum BuildClientError {
@@ -516,5 +583,65 @@ mod tests {
             client.mkurl("foo/bar").unwrap().as_str(),
             format!("{GITHUB_API_URL}/foo/bar")
         );
+    }
+
+    mod method {
+        use super::*;
+        use rstest::rstest;
+
+        #[rstest]
+        #[case(Method::Get)]
+        //#[case(Method::Head)]
+        #[case(Method::Post)]
+        #[case(Method::Put)]
+        #[case(Method::Patch)]
+        #[case(Method::Delete)]
+        fn parse_display_roundtrip(#[case] m: Method) {
+            assert_eq!(m.to_string().parse::<Method>().unwrap(), m);
+        }
+
+        #[rstest]
+        #[case("get", Method::Get)]
+        #[case("Get", Method::Get)]
+        #[case("gET", Method::Get)]
+        #[case("GeT", Method::Get)]
+        //#[case("head", Method::Head)]
+        //#[case("Head", Method::Head)]
+        //#[case("hEAD", Method::Head)]
+        #[case("post", Method::Post)]
+        #[case("Post", Method::Post)]
+        #[case("pOST", Method::Post)]
+        #[case("put", Method::Put)]
+        #[case("Put", Method::Put)]
+        #[case("pUT", Method::Put)]
+        #[case("patch", Method::Patch)]
+        #[case("Patch", Method::Patch)]
+        #[case("pATCH", Method::Patch)]
+        #[case("delete", Method::Delete)]
+        #[case("Delete", Method::Delete)]
+        #[case("dELETE", Method::Delete)]
+        #[case("DeLeTe", Method::Delete)]
+        #[case("dElEtE", Method::Delete)]
+        fn parse_crazy_casing(#[case] s: &str, #[case] m: Method) {
+            assert_eq!(s.parse::<Method>().unwrap(), m);
+        }
+
+        #[rstest]
+        #[case("CONNECT")]
+        #[case("OPTIONS")]
+        #[case("TRACE")]
+        #[case("PROPFIND")]
+        fn parse_unsupported(#[case] s: &str) {
+            assert!(s.parse::<Method>().is_err());
+        }
+
+        #[rstest]
+        #[case(ureq::http::Method::CONNECT)]
+        #[case(ureq::http::Method::OPTIONS)]
+        #[case(ureq::http::Method::TRACE)]
+        fn try_from_unsupported(#[case] m: ureq::http::Method) {
+            let m2 = m.clone();
+            assert_eq!(Method::try_from(m), Err(MethodConvertError(m2)));
+        }
     }
 }
