@@ -3,7 +3,7 @@
 [![Minimum Supported Rust Version](https://img.shields.io/badge/MSRV-1.82-orange)](https://www.rust-lang.org)
 [![MIT License](https://img.shields.io/github/license/jwodder/minigh.svg)](https://opensource.org/licenses/MIT)
 
-[GitHub](https://github.com/jwodder/minigh) | [crates.io](https://crates.io/crates/minigh) | [Documentation](https://docs.rs/minigh) | [Issues](https://github.com/jwodder/minigh/issues)
+[GitHub](https://github.com/jwodder/minigh) | [crates.io](https://crates.io/crates/minigh) | [Documentation](https://docs.rs/minigh) | [Issues](https://github.com/jwodder/minigh/issues) | [Changelog](https://github.com/jwodder/minigh/blob/main/CHANGELOG.md)
 
 `minigh` is a thin wrapper around [`ureq`](https://crates.io/crates/ureq) for
 interacting with the GitHub REST API that aims to make common operations easier
