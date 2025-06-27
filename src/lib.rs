@@ -378,7 +378,7 @@ impl Method {
 
 impl fmt::Display for Method {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.pad(self.as_str())
     }
 }
 
@@ -642,6 +642,13 @@ mod tests {
         fn try_from_unsupported(#[case] m: ureq::http::Method) {
             let m2 = m.clone();
             assert_eq!(Method::try_from(m), Err(MethodConvertError(m2)));
+        }
+
+        #[test]
+        fn pad() {
+            let m = Method::Get;
+            assert_eq!(format!("{m:.^10}"), "...GET....");
+            assert_eq!(format!("{m:.1}"), "G");
         }
     }
 }

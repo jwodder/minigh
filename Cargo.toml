@@ -11,7 +11,7 @@ license = "MIT"
 
 [package]
 name = "minigh"
-version = "0.1.0"
+version = "0.1.1-dev"
 edition.workspace = true
 rust-version.workspace = true
 description = "Minimal and opinionated GitHub REST API client"
