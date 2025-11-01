@@ -36,19 +36,19 @@ mod util;
 pub use crate::page::*;
 use crate::util::*;
 use indenter::indented;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::cell::Cell;
 use std::fmt::{self, Write};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use ureq::{
-    http::{
-        header::{HeaderName, HeaderValue, AUTHORIZATION},
-        status::StatusCode,
-        Response,
-    },
     Agent, Body,
+    http::{
+        Response,
+        header::{AUTHORIZATION, HeaderName, HeaderValue},
+        status::StatusCode,
+    },
 };
 use url::Url;
 
@@ -177,14 +177,14 @@ impl Client {
         url: Url,
         payload: Option<&T>,
     ) -> Result<Response<Body>, RequestError> {
-        if method.is_mutating() {
-            if let Some(lastmut) = self.last_mutation.get() {
-                let delay = MUTATION_DELAY
-                    .saturating_sub(Instant::now().saturating_duration_since(lastmut));
-                if !delay.is_zero() {
-                    log::debug!("Sleeping for {delay:?} between mutating requests");
-                    sleep(delay);
-                }
+        if method.is_mutating()
+            && let Some(lastmut) = self.last_mutation.get()
+        {
+            let delay =
+                MUTATION_DELAY.saturating_sub(Instant::now().saturating_duration_since(lastmut));
+            if !delay.is_zero() {
+                log::debug!("Sleeping for {delay:?} between mutating requests");
+                sleep(delay);
             }
         }
         let mut retrier = Retrier::new(method, url.clone());
@@ -509,7 +509,7 @@ impl RequestError {
     ///
     /// The body is also printed when displaying a `RequestError` with `{:#}`.
     pub fn body(&self) -> Option<&str> {
-        if let RequestError::Status(ref stat) = self {
+        if let RequestError::Status(stat) = self {
             stat.body()
         } else {
             None
@@ -552,10 +552,10 @@ impl fmt::Display for StatusError {
             "{} request to {} returned {}",
             self.method, self.url, self.status
         )?;
-        if f.alternate() {
-            if let Some(text) = self.body() {
-                write!(indented(f).with_str("    "), "\n\n{text}\n")?;
-            }
+        if f.alternate()
+            && let Some(text) = self.body()
+        {
+            write!(indented(f).with_str("    "), "\n\n{text}\n")?;
         }
         Ok(())
     }

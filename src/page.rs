@@ -1,6 +1,6 @@
 use super::util::get_next_link;
 use super::{Client, Method, RequestError};
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{Deserialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use thiserror::Error;
 use url::Url;
@@ -58,7 +58,7 @@ where
                         method: Method::Get,
                         url,
                         source: Box::new(source),
-                    }))
+                    }));
                 }
             }
             self.next_url = match get_next_link(&resp) {
