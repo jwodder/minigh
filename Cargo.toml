@@ -4,14 +4,14 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.88"
 authors = ["John Thorvald Wodder II <minigh@varonathe.org>"]
 repository = "https://github.com/jwodder/minigh"
 license = "MIT"
 
 [package]
 name = "minigh"
-version = "0.1.1"
+version = "0.2.0-dev"
 edition.workspace = true
 rust-version.workspace = true
 description = "Minimal and opinionated GitHub REST API client"
