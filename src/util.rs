@@ -1,13 +1,13 @@
 use super::{Method, RequestError, StatusError};
-use mime::{Mime, JSON};
+use mime::{JSON, Mime};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ureq::{
+    Body,
     http::{
-        header::{HeaderName, CONTENT_TYPE, LINK, RETRY_AFTER},
+        header::{CONTENT_TYPE, HeaderName, LINK, RETRY_AFTER},
         response::{Parts, Response},
         status::StatusCode,
     },
-    Body,
 };
 use url::Url;
 
@@ -103,7 +103,9 @@ impl Retrier {
                     if let Some(delay) = secs {
                         log::debug!("Server responded with 403 and Retry-After header");
                         if time_left < Duration::from_secs(delay) {
-                            log::debug!("Retrying after Retry-After would exceed maximum total retry wait time; not retrying");
+                            log::debug!(
+                                "Retrying after Retry-After would exceed maximum total retry wait time; not retrying"
+                            );
                             return Err(RequestError::Status(StatusError::from(rr)));
                         }
                     }
@@ -120,7 +122,9 @@ impl Retrier {
                             let delay = time_till_timestamp(reset).unwrap_or_default()
                                 + Duration::from_secs(1);
                             if time_left < delay {
-                                log::debug!("Primary rate limit exceeded; waiting for reset would exceed maximum total retry wait time; not retrying");
+                                log::debug!(
+                                    "Primary rate limit exceeded; waiting for reset would exceed maximum total retry wait time; not retrying"
+                                );
                                 return Err(RequestError::Status(StatusError::from(rr)));
                             } else {
                                 log::debug!("Primary rate limit exceeded; waiting for reset");
@@ -264,10 +268,10 @@ impl ReadableBody {
     /// If the body has not been read yet, read & store it as a string.
     /// Returns the read body.
     fn as_str(&mut self) -> Option<&str> {
-        if let ReadableBody::Unread(ref mut body) = self {
+        if let ReadableBody::Unread(body) = self {
             *self = ReadableBody::Read(body.read_to_string().ok());
         }
-        let ReadableBody::Read(ref s) = self else {
+        let &mut ReadableBody::Read(ref s) = self else {
             unreachable!("ReadableBody should be Read after reading");
         };
         s.as_deref()
