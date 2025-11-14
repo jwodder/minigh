@@ -108,6 +108,11 @@ impl Client {
         ClientBuilder::new()
     }
 
+    /// Return a reference to the inner [`ureq::Agent`]
+    pub fn agent_ref(&self) -> &Agent {
+        &self.inner
+    }
+
     /// If `path` is a URL, return it as-is.  Otherwise, return it joined to
     /// `self.api_url`.
     fn mkurl(&self, path: &str) -> Result<Url, RequestError> {
