@@ -37,6 +37,7 @@ pub use crate::page::*;
 use crate::util::*;
 use indenter::indented;
 use serde::{Serialize, de::DeserializeOwned};
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::fmt::{self, Write};
 use std::thread::sleep;
@@ -52,7 +53,7 @@ use ureq::{
 };
 use url::Url;
 
-/// The `User-Agent` header sent in requests
+/// The default `User-Agent` header sent in requests
 static USER_AGENT: &str = concat!(
     env!("CARGO_PKG_NAME"),
     "/",
@@ -62,17 +63,17 @@ static USER_AGENT: &str = concat!(
     ")",
 );
 
-/// The base GitHub REST API URL
+/// The default base GitHub REST API URL
 static GITHUB_API_URL: &str = "https://api.github.com";
 
-/// The value of the `Accept` header sent in requests
+/// The default value of the `Accept` header sent in requests
 static ACCEPT_VALUE: &str = "application/vnd.github+json";
 
 /// The name of the `X-GitHub-Api-Version` header
 const API_VERSION_HEADER: HeaderName = HeaderName::from_static("x-github-api-version");
 
-/// The value of the `X-GitHub-Api-Version` header sent in requests
-const API_VERSION_VALUE: HeaderValue = HeaderValue::from_static("2022-11-28");
+/// The default value of the `X-GitHub-Api-Version` header sent in requests
+static API_VERSION_VALUE: &str = "2022-11-28";
 
 /// Delay between consecutive requests that use mutating methods
 const MUTATION_DELAY: Duration = Duration::from_secs(1);
@@ -92,50 +93,19 @@ pub struct Client {
 }
 
 impl Client {
-    /// Create a new `Client` using the given authentication token.
-    ///
-    /// All requests made with the client will send the following headers:
-    ///
-    /// - `Accept: application/vnd.github+json`
-    /// - `Authorization: Bearer {token}` (included in redirects to the same
-    ///   host)
-    /// - `User-Agent` — value constructed from `minigh` package details
-    /// - `X-GitHub-Api-Version: 2022-11-28`
-    ///
-    /// In addition, only HTTPS requests (including redirects) are supported by
-    /// the client.
+    /// Create a new `Client` using the given authentication token and default
+    /// builder configuration.
     ///
     /// # Errors
     ///
     /// Returns `Err` if `"Bearer {token}"` is not a valid HTTP header value
     pub fn new(token: &str) -> Result<Client, BuildClientError> {
-        let Ok(api_url) = Url::parse(GITHUB_API_URL) else {
-            unreachable!("GITHUB_API_URL should be a valid URL");
-        };
-        let auth = format!("Bearer {token}");
-        let auth = HeaderValue::from_str(&auth)?;
-        let inner = Agent::config_builder()
-            .http_status_as_error(false)
-            .redirect_auth_headers(ureq::config::RedirectAuthHeaders::SameHost)
-            .user_agent(USER_AGENT)
-            .accept(ACCEPT_VALUE)
-            .https_only(true)
-            .middleware(
-                move |mut req: ureq::http::Request<ureq::SendBody<'_>>,
-                      next: ureq::middleware::MiddlewareNext<'_>| {
-                    req.headers_mut().insert(AUTHORIZATION, auth.clone());
-                    req.headers_mut()
-                        .insert(API_VERSION_HEADER, API_VERSION_VALUE);
-                    next.handle(req)
-                },
-            )
-            .build()
-            .into();
-        Ok(Client {
-            inner,
-            api_url,
-            last_mutation: Cell::new(None),
-        })
+        ClientBuilder::new().with_token(token).build()
+    }
+
+    /// Return a new `ClientBuilder` instance for building a new `Client`
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
     }
 
     /// If `path` is a URL, return it as-is.  Otherwise, return it joined to
@@ -344,6 +314,140 @@ impl Client {
     }
 }
 
+/// A builder for [`Client`] values
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientBuilder {
+    token: Option<String>,
+    user_agent: Cow<'static, str>,
+    api_url: Url,
+    api_version: Cow<'static, str>,
+    accept: Cow<'static, str>,
+}
+
+impl ClientBuilder {
+    /// Create a new `ClientBuilder` with the default settings
+    pub fn new() -> ClientBuilder {
+        let Ok(api_url) = Url::parse(GITHUB_API_URL) else {
+            unreachable!("GITHUB_API_URL should be a valid URL");
+        };
+        ClientBuilder {
+            token: None,
+            user_agent: Cow::from(USER_AGENT),
+            api_url,
+            api_version: Cow::from(API_VERSION_VALUE),
+            accept: Cow::from(ACCEPT_VALUE),
+        }
+    }
+
+    /// Set the GitHub access token to include in the `Authorization` header of
+    /// requests sent by the client.
+    ///
+    /// By default, no `Authorization` header is sent (i.e., requests are
+    /// unauthenticated).
+    pub fn with_token(mut self, token: &str) -> Self {
+        self.token = Some(token.into());
+        self
+    }
+
+    /// Set the value of the `User-Agent` header in requests sent by the
+    /// client.
+    ///
+    /// By default, `User-Agent` is set to a value constructed from `minigh`'s
+    /// package details.
+    pub fn with_user_agent(mut self, user_agent: &str) -> Self {
+        self.user_agent = Cow::from(user_agent.to_owned());
+        self
+    }
+
+    /// Set the base GitHub API URL to which URL paths passed to various
+    /// `Client` methods will be appended.
+    ///
+    /// By default, the base GitHub API URL is set to
+    /// `"https://api.github.com"`.
+    pub fn with_api_url(mut self, api_url: Url) -> Self {
+        self.api_url = api_url;
+        self
+    }
+
+    /// Set the value of the `X-GitHub-Api-Version` header in requests sent by
+    /// the client.
+    ///
+    /// By default, `X-GitHub-Api-Version` is set to `"2022-11-28"`.
+    pub fn with_api_version(mut self, api_version: &str) -> Self {
+        self.api_version = Cow::from(api_version.to_owned());
+        self
+    }
+
+    /// Set the value of the `Accept` header in requests sent by the client.
+    ///
+    /// By default, the `Accept` header is set to
+    /// `"application/vnd.github+json"`.
+    pub fn with_accept_value(mut self, accept: &str) -> Self {
+        self.accept = Cow::from(accept.to_owned());
+        self
+    }
+
+    /// Construct a new `Client` instance.
+    ///
+    /// In addition to the settings configurable by the `ClientBuilder`
+    /// methods, the client will only support HTTPS requests (including for
+    /// redirects).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if converting a value for a header to a [`HeaderValue`]
+    /// fails.
+    pub fn build(self) -> Result<Client, BuildClientError> {
+        let auth = if let Some(token) = self.token {
+            let auth = format!("Bearer {token}");
+            Some(HeaderValue::from_str(&auth).map_err(|source| {
+                BuildClientError::InvalidHeaderValue {
+                    header: AUTHORIZATION,
+                    source,
+                }
+            })?)
+        } else {
+            None
+        };
+        let api_version_value = HeaderValue::from_str(&self.api_version).map_err(|source| {
+            BuildClientError::InvalidHeaderValue {
+                header: API_VERSION_HEADER,
+                source,
+            }
+        })?;
+        let inner = Agent::config_builder()
+            .http_status_as_error(false)
+            .redirect_auth_headers(ureq::config::RedirectAuthHeaders::SameHost)
+            .user_agent(self.user_agent)
+            .accept(self.accept)
+            .https_only(true)
+            .middleware(
+                move |mut req: ureq::http::Request<ureq::SendBody<'_>>,
+                      next: ureq::middleware::MiddlewareNext<'_>| {
+                    if let Some(a) = auth.clone() {
+                        req.headers_mut().insert(AUTHORIZATION, a);
+                    }
+                    req.headers_mut()
+                        .insert(API_VERSION_HEADER, api_version_value.clone());
+                    next.handle(req)
+                },
+            )
+            .build()
+            .into();
+        Ok(Client {
+            inner,
+            api_url: self.api_url,
+            last_mutation: Cell::new(None),
+        })
+    }
+}
+
+impl Default for ClientBuilder {
+    fn default() -> ClientBuilder {
+        ClientBuilder::new()
+    }
+}
+
 /// The HTTP methods supported by `minigh`
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Method {
@@ -452,10 +556,14 @@ pub struct MethodConvertError(
 /// Error returned when constructing a `Client` fails
 #[derive(Debug, Error)]
 pub enum BuildClientError {
-    /// Failed to create a valid HTTP header value out of the supplied
-    /// authentication token
-    #[error("could not create an HTTP header value out of auth token")]
-    AuthValue(#[from] ureq::http::header::InvalidHeaderValue),
+    /// A value for a header could not be converted to a [`HeaderValue`]
+    #[error("value supplied for header {header} is invalid")]
+    InvalidHeaderValue {
+        /// The name of the header
+        header: HeaderName,
+        /// The conversion error
+        source: ureq::http::header::InvalidHeaderValue,
+    },
 }
 
 /// Error returned when an HTTP request fails
