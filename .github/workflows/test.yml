@@ -12,6 +12,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref_name }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -33,6 +35,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         if: matrix.toolchain != 'msrv'
@@ -71,6 +75,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
@@ -104,6 +110,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
@@ -135,6 +143,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
@@ -163,6 +173,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Install nightly Rust
         uses: dtolnay/rust-toolchain@master
