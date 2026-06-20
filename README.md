@@ -31,4 +31,4 @@ interacting with the GitHub REST API that aims to make common operations easier
 
 - Automatic retrying on 5xx errors with exponential backoff
 
-[ratelimit]: https://docs.github.com/en/rest/guides/best-practices-for-using-the-rest-api?apiVersion=2022-11-28#dealing-with-rate-limits
+[ratelimit]: https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#handle-rate-limit-errors-appropriately
