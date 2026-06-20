@@ -1,5 +1,5 @@
-v0.3.0 (in development)
------------------------
+v0.3.0 (2026-06-20)
+-------------------
 - Updated the default value of the `X-GitHub-Api-Version` header to
   "2026-03-10", up from "2022-11-28".  See [the GitHub
   documentation](https://docs.github.com/en/rest/about-the-rest-api/breaking-changes#version-2026-03-10)
