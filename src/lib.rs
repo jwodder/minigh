@@ -24,7 +24,7 @@
 //!
 //! - Automatic retrying on 5xx errors with exponential backoff
 //!
-//! [ratelimit]: https://docs.github.com/en/rest/guides/best-practices-for-using-the-rest-api?apiVersion=2022-11-28#dealing-with-rate-limits
+//! [ratelimit]: https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#handle-rate-limit-errors-appropriately
 //!
 //! Logging
 //! =======
@@ -73,7 +73,7 @@ static ACCEPT_VALUE: &str = "application/vnd.github+json";
 const API_VERSION_HEADER: HeaderName = HeaderName::from_static("x-github-api-version");
 
 /// The default value of the `X-GitHub-Api-Version` header sent in requests
-static API_VERSION_VALUE: &str = "2022-11-28";
+static API_VERSION_VALUE: &str = "2026-03-10";
 
 /// Delay between consecutive requests that use mutating methods
 const MUTATION_DELAY: Duration = Duration::from_secs(1);
@@ -377,7 +377,7 @@ impl ClientBuilder {
     /// Set the value of the `X-GitHub-Api-Version` header in requests sent by
     /// the client.
     ///
-    /// By default, `X-GitHub-Api-Version` is set to `"2022-11-28"`.
+    /// By default, `X-GitHub-Api-Version` is set to `"2026-03-10"`.
     pub fn with_api_version(mut self, api_version: &str) -> Self {
         self.api_version = Cow::from(api_version.to_owned());
         self
