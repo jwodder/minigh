@@ -290,7 +290,7 @@ pub(super) fn get_next_link(r: &Response<Body>) -> Option<Url> {
 /// Given the value of a `Content-Type` header, returns `true` if the value
 /// is for a JSON payload
 fn is_json_content_type(ct_value: &str) -> bool {
-    ct_value.parse::<Mime>().ok().is_some_and(|ct| {
+    ct_value.parse::<Mime>().is_ok_and(|ct| {
         ct.type_() == "application" && (ct.subtype() == "json" || ct.suffix() == Some(JSON))
     })
 }
