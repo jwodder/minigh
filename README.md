@@ -6,8 +6,8 @@
 [GitHub](https://github.com/jwodder/minigh) | [crates.io](https://crates.io/crates/minigh) | [Documentation](https://docs.rs/minigh) | [Issues](https://github.com/jwodder/minigh/issues) | [Changelog](https://github.com/jwodder/minigh/blob/main/CHANGELOG.md)
 
 `minigh` is a thin wrapper around [`ureq`](https://crates.io/crates/ureq) for
-interacting with the GitHub REST API that aims to make common operations easier
-& simpler.  Notable features include:
+interacting with the GitHub REST and GraphQL APIs that aims to make common
+operations easier & simpler.  Notable features include:
 
 - When making a request, you only need to specify the part of the URL after the
   API base URL.
