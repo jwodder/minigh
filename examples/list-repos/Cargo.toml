@@ -8,13 +8,13 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow = "1.0.95"
-clap = { version = "4.5.26", features = ["derive"] }
-gh-token = "0.1.7"
+anyhow.workspace = true
+clap.workspace = true
+gh-token.workspace = true
 minigh = { path = "../.." }
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-url = { version = "2.5.4", features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+url = { workspace = true, features = ["serde"] }
 
 [lints]
 workspace = true
