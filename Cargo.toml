@@ -19,7 +19,7 @@ url = "2.5.4"
 
 [package]
 name = "minigh"
-version = "0.4.0-dev"
+version = "0.4.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Minimal and opinionated GitHub REST API client"

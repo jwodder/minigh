@@ -1,5 +1,5 @@
-v0.4.0 (in development)
------------------------
+v0.4.0 (2026-11-19)
+-------------------
 - Added `Client::graphql()` and `ClientBuilder::with_graphql_url()` methods for
   sending GraphQL requests
 
