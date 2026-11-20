@@ -32,9 +32,9 @@
 //! `minigh` uses the [`log`] crate to log events.  All messages are currently
 //! logged at the `DEBUG` level.
 mod page;
-mod requestor;
+mod request;
 pub use crate::page::*;
-use crate::requestor::Requestor;
+use crate::request::MiniRequest;
 use indenter::indented;
 use serde::{Serialize, de::DeserializeOwned};
 use std::borrow::Cow;
@@ -46,7 +46,7 @@ use ureq::{
     Agent, Body,
     http::{
         Response,
-        header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderName, HeaderValue},
+        header::{ACCEPT, AUTHORIZATION, HeaderName, HeaderValue},
         status::StatusCode,
     },
 };
@@ -161,15 +161,11 @@ impl Client {
         url: Url,
         payload: Option<&T>,
     ) -> Result<Response<Body>, RequestError> {
-        Requestor {
-            client: self,
-            method,
-            url,
-            payload,
-            mutating: method.is_mutating(),
-            headers: HeaderMap::from_iter([(API_VERSION_HEADER, self.api_version.clone())]),
-        }
-        .run()
+        MiniRequest::builder(self, method, url)
+            .payload(payload)
+            .header(API_VERSION_HEADER, self.api_version.clone())
+            .build()
+            .run()
     }
 
     /// Make an HTTP request with method `method` to `path`.  `path` may be
@@ -189,15 +185,11 @@ impl Client {
         path: &str,
         payload: Option<&T>,
     ) -> Result<U, RequestError> {
-        Requestor {
-            client: self,
-            method,
-            url: self.mkurl(path)?,
-            payload,
-            mutating: method.is_mutating(),
-            headers: HeaderMap::from_iter([(API_VERSION_HEADER, self.api_version.clone())]),
-        }
-        .run_for_json()
+        MiniRequest::builder(self, method, self.mkurl(path)?)
+            .payload(payload)
+            .header(API_VERSION_HEADER, self.api_version.clone())
+            .build()
+            .run_for_json()
     }
 
     /// Make a GET request to `path`.  `path` may be either a complete URL or
@@ -317,18 +309,13 @@ impl Client {
         query: &'a str,
         variables: &'a T,
     ) -> Result<U, RequestError> {
-        Requestor {
-            client: self,
-            method: Method::Post,
-            url: self.graphql_url.clone(),
-            payload: Some(&QueryPayload { query, variables }),
-            mutating: false,
-            headers: HeaderMap::from_iter([
-                (ACCEPT, HeaderValue::from_static("*/*")),
-                (NEXT_GLOBAL_ID_HEADER, HeaderValue::from_static("1")),
-            ]),
-        }
-        .run_for_json()
+        MiniRequest::builder(self, Method::Post, self.graphql_url.clone())
+            .payload(Some(&QueryPayload { query, variables }))
+            .mutating(false)
+            .header(ACCEPT, HeaderValue::from_static("*/*"))
+            .header(NEXT_GLOBAL_ID_HEADER, HeaderValue::from_static("1"))
+            .build()
+            .run_for_json()
     }
 }
 

@@ -37,33 +37,94 @@ const RATELIMIT_REMAINING_HEADER: HeaderName = HeaderName::from_static("x-rateli
 /// The name of the `X-Ratelimit-Reset` header
 const RATELIMIT_RESET_HEADER: HeaderName = HeaderName::from_static("x-ratelimit-reset");
 
-/// Struct for performing an API request
 #[derive(Clone, Debug)]
-pub(super) struct Requestor<'a, T> {
+pub(super) struct MiniRequestBuilder<'a, T> {
+    client: &'a Client,
+    method: Method,
+    url: Url,
+    headers: HeaderMap<HeaderValue>,
+    payload: Option<&'a T>,
+    mutating: bool,
+}
+
+impl<'a, T> MiniRequestBuilder<'a, T> {
+    pub(super) fn header(mut self, name: HeaderName, value: HeaderValue) -> Self {
+        self.headers.insert(name, value);
+        self
+    }
+
+    pub(super) fn payload(mut self, payload: Option<&'a T>) -> Self {
+        self.payload = payload;
+        self
+    }
+
+    pub(super) fn mutating(mut self, mutating: bool) -> Self {
+        self.mutating = mutating;
+        self
+    }
+
+    pub(super) fn build(self) -> MiniRequest<'a, T> {
+        MiniRequest {
+            client: self.client,
+            method: self.method,
+            url: self.url,
+            headers: self.headers,
+            payload: self.payload,
+            mutating: self.mutating,
+            attempts: 0,
+            stop_time: Instant::now() + TOTAL_WAIT,
+        }
+    }
+}
+
+/// Struct for performing an API request, including retrying on failures
+#[derive(Clone, Debug)]
+pub(super) struct MiniRequest<'a, T> {
     /// The `Client` instance
-    pub(super) client: &'a Client,
+    client: &'a Client,
 
     /// The request's method
-    pub(super) method: Method,
+    method: Method,
 
     /// The URL to which the request is to be sent
-    pub(super) url: Url,
+    url: Url,
 
     /// Extra headers to set on the request
-    pub(super) headers: HeaderMap<HeaderValue>,
+    headers: HeaderMap<HeaderValue>,
 
     /// If non-`None`, `payload` is serialized as JSON and sent as the request
     /// body
-    pub(super) payload: Option<&'a T>,
+    payload: Option<&'a T>,
 
     /// Whether this should be considered a mutating request and thus eligible
     /// for a delay of up to one second
-    pub(super) mutating: bool,
+    mutating: bool,
+
+    /// Which retry we're currently on
+    attempts: i32,
+
+    /// Timestamp beyond which we should stop retrying
+    stop_time: Instant,
 }
 
-impl<T: Serialize> Requestor<'_, T> {
+impl<'a, T: Serialize> MiniRequest<'a, T> {
+    pub(super) fn builder(
+        client: &'a Client,
+        method: Method,
+        url: Url,
+    ) -> MiniRequestBuilder<'a, T> {
+        MiniRequestBuilder {
+            client,
+            method,
+            url,
+            headers: HeaderMap::new(),
+            payload: None,
+            mutating: method.is_mutating(),
+        }
+    }
+
     /// Perform the request and return the response
-    pub(super) fn run(self) -> Result<Response<Body>, RequestError> {
+    pub(super) fn run(mut self) -> Result<Response<Body>, RequestError> {
         if self.mutating
             && let Some(lastmut) = self.client.last_mutation.get()
         {
@@ -74,7 +135,6 @@ impl<T: Serialize> Requestor<'_, T> {
                 sleep(delay);
             }
         }
-        let mut retrier = Retrier::new(self.method, self.url.clone());
         loop {
             if self.mutating {
                 self.client.last_mutation.set(Some(Instant::now()));
@@ -104,7 +164,7 @@ impl<T: Serialize> Requestor<'_, T> {
                 Ok(r) => log::debug!("Server returned {}", r.status()),
                 Err(e) => log::debug!("Request failed: {e}"),
             };
-            match retrier.handle(resp)? {
+            match self.check_retry(resp)? {
                 RetryDecision::Success(r) => return Ok(r),
                 RetryDecision::Retry(delay) => {
                     log::debug!("Waiting {delay:?} and then retrying request");
@@ -127,33 +187,6 @@ impl<T: Serialize> Requestor<'_, T> {
             }),
         }
     }
-}
-
-/// A struct for determining retries for a single request
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Retrier {
-    /// The HTTP method of the request
-    method: Method,
-
-    /// The URL to which the request is being sent
-    url: Url,
-
-    /// Which retry we're currently on
-    attempts: i32,
-
-    /// Timestamp beyond which we should stop retrying
-    stop_time: Instant,
-}
-
-impl Retrier {
-    fn new(method: Method, url: Url) -> Retrier {
-        Retrier {
-            method,
-            url,
-            attempts: 0,
-            stop_time: Instant::now() + TOTAL_WAIT,
-        }
-    }
 
     /// Takes the return value of a call to
     /// [`ureq::RequestBuilder::send_json()`] or similar and decides whether or
@@ -168,7 +201,7 @@ impl Retrier {
     /// - If the request was a failure (possibly due to status code) and should
     ///   not be retried (possibly due to all retries having been exhausted),
     ///   returns an `Err` to return to the caller.
-    fn handle(
+    fn check_retry(
         &mut self,
         resp: Result<Response<Body>, ureq::Error>,
     ) -> Result<RetryDecision, RequestError> {
