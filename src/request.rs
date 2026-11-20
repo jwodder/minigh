@@ -205,6 +205,11 @@ impl<'a, T: Serialize> MiniRequest<'a, T> {
         &mut self,
         resp: Result<Response<Body>, ureq::Error>,
     ) -> Result<RetryDecision, RequestError> {
+        if resp.as_ref().is_ok_and(|r| r.status().is_success())
+            && let Ok(r) = resp
+        {
+            return Ok(RetryDecision::Success(r));
+        }
         self.attempts += 1;
         if self.attempts > RETRIES {
             log::debug!("Retries exhausted");

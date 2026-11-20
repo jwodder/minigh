@@ -1,3 +1,8 @@
+v0.4.1 (in development)
+-----------------------
+- Don't emit log messages about "Retries exhausted" or "Maximum total wait time
+  exceeded" on a successful response
+
 v0.4.0 (2026-11-19)
 -------------------
 - Added `Client::graphql()` and `ClientBuilder::with_graphql_url()` methods for
