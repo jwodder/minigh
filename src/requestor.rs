@@ -1,15 +1,20 @@
-use super::{Method, RequestError, StatusError};
+use super::{Client, Method, RequestError, StatusError};
 use mime::{JSON, Mime};
+use serde::{Serialize, de::DeserializeOwned};
+use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ureq::{
     Body,
     http::{
-        header::{CONTENT_TYPE, HeaderName, LINK, RETRY_AFTER},
+        header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, RETRY_AFTER},
         response::{Parts, Response},
         status::StatusCode,
     },
 };
 use url::Url;
+
+/// Delay between consecutive requests that use mutating methods
+const MUTATION_DELAY: Duration = Duration::from_secs(1);
 
 /// Maximum number of times to retry a request
 const RETRIES: i32 = 10;
@@ -32,9 +37,101 @@ const RATELIMIT_REMAINING_HEADER: HeaderName = HeaderName::from_static("x-rateli
 /// The name of the `X-Ratelimit-Reset` header
 const RATELIMIT_RESET_HEADER: HeaderName = HeaderName::from_static("x-ratelimit-reset");
 
+/// Struct for performing an API request
+#[derive(Clone, Debug)]
+pub(super) struct Requestor<'a, T> {
+    /// The `Client` instance
+    pub(super) client: &'a Client,
+
+    /// The request's method
+    pub(super) method: Method,
+
+    /// The URL to which the request is to be sent
+    pub(super) url: Url,
+
+    /// Extra headers to set on the request
+    pub(super) headers: HeaderMap<HeaderValue>,
+
+    /// If non-`None`, `payload` is serialized as JSON and sent as the request
+    /// body
+    pub(super) payload: Option<&'a T>,
+
+    /// Whether this should be considered a mutating request and thus eligible
+    /// for a delay of up to one second
+    pub(super) mutating: bool,
+}
+
+impl<T: Serialize> Requestor<'_, T> {
+    /// Perform the request and return the response
+    pub(super) fn run(self) -> Result<Response<Body>, RequestError> {
+        if self.mutating
+            && let Some(lastmut) = self.client.last_mutation.get()
+        {
+            let delay =
+                MUTATION_DELAY.saturating_sub(Instant::now().saturating_duration_since(lastmut));
+            if !delay.is_zero() {
+                log::debug!("Sleeping for {delay:?} between mutating requests");
+                sleep(delay);
+            }
+        }
+        let mut retrier = Retrier::new(self.method, self.url.clone());
+        loop {
+            if self.mutating {
+                self.client.last_mutation.set(Some(Instant::now()));
+            }
+            let mut req = match self.method {
+                Method::Get => self.client.inner.get(self.url.as_str()).force_send_body(),
+                //Method::Head => self.inner.head(self.url).force_send_body(),
+                Method::Post => self.client.inner.post(self.url.as_str()),
+                Method::Put => self.client.inner.put(self.url.as_str()),
+                Method::Patch => self.client.inner.patch(self.url.as_str()),
+                Method::Delete => self
+                    .client
+                    .inner
+                    .delete(self.url.as_str())
+                    .force_send_body(),
+            };
+            log::debug!("{} {}", self.method, self.url);
+            if let Some(map) = req.headers_mut() {
+                map.extend(self.headers.clone());
+            }
+            let resp = if let Some(p) = self.payload {
+                req.send_json(p)
+            } else {
+                req.send_empty()
+            };
+            match &resp {
+                Ok(r) => log::debug!("Server returned {}", r.status()),
+                Err(e) => log::debug!("Request failed: {e}"),
+            };
+            match retrier.handle(resp)? {
+                RetryDecision::Success(r) => return Ok(r),
+                RetryDecision::Retry(delay) => {
+                    log::debug!("Waiting {delay:?} and then retrying request");
+                    sleep(delay);
+                }
+            }
+        }
+    }
+
+    /// Perform the request and return the response body deserialized as JSON
+    pub(super) fn run_for_json<U: DeserializeOwned>(self) -> Result<U, RequestError> {
+        let method = self.method;
+        let url = self.url.clone();
+        match self.run()?.body_mut().read_json::<U>() {
+            Ok(val) => Ok(val),
+            Err(source) => Err(RequestError::Deserialize {
+                method,
+                url,
+                source: Box::new(source),
+            }),
+        }
+    }
+}
+
 /// A struct for determining retries for a single request
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct Retrier {
+struct Retrier {
     /// The HTTP method of the request
     method: Method,
 
@@ -49,7 +146,7 @@ pub(super) struct Retrier {
 }
 
 impl Retrier {
-    pub(super) fn new(method: Method, url: Url) -> Retrier {
+    fn new(method: Method, url: Url) -> Retrier {
         Retrier {
             method,
             url,
@@ -71,7 +168,7 @@ impl Retrier {
     /// - If the request was a failure (possibly due to status code) and should
     ///   not be retried (possibly due to all retries having been exhausted),
     ///   returns an `Err` to return to the caller.
-    pub(super) fn handle(
+    fn handle(
         &mut self,
         resp: Result<Response<Body>, ureq::Error>,
     ) -> Result<RetryDecision, RequestError> {
@@ -172,7 +269,7 @@ impl Retrier {
 /// Return type of [`Retrier::handle()`]
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
-pub(super) enum RetryDecision {
+enum RetryDecision {
     /// Return the given response without retrying
     Success(Response<Body>),
 
@@ -182,7 +279,7 @@ pub(super) enum RetryDecision {
 
 /// A decomposed HTTP response that can read & store the response body.
 #[derive(Debug)]
-pub(super) struct ReadableResponse {
+struct ReadableResponse {
     /// The HTTP method of the corresponding request
     method: Method,
 
@@ -276,15 +373,6 @@ impl ReadableBody {
         };
         s.as_deref()
     }
-}
-
-/// Return the `rel="next"` URL, if any, from the response's "Link" header
-pub(super) fn get_next_link(r: &Response<Body>) -> Option<Url> {
-    let header_value = r.headers().get(LINK)?.to_str().ok()?;
-    parse_link_header::parse_with_rel(header_value)
-        .ok()?
-        .get("next")
-        .map(|link| link.uri.clone())
 }
 
 /// Given the value of a `Content-Type` header, returns `true` if the value
