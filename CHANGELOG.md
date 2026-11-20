@@ -1,3 +1,8 @@
+v0.4.0 (in development)
+-----------------------
+- Added `Client::graphql()` and `ClientBuilder::with_graphql_url()` methods for
+  sending GraphQL requests
+
 v0.3.0 (2026-06-20)
 -------------------
 - Updated the default value of the `X-GitHub-Api-Version` header to

@@ -1,6 +1,6 @@
 //! `minigh` is a thin wrapper around [`ureq`] for interacting with the GitHub
-//! REST API that aims to make common operations easier & simpler.  Notable
-//! features include:
+//! REST and GraphQL APIs that aims to make common operations easier & simpler.
+//! Notable features include:
 //!
 //! - When making a request, you only need to specify the part of the URL after
 //!   the API base URL.
@@ -47,7 +47,7 @@ use ureq::{
     Agent, Body,
     http::{
         Response,
-        header::{AUTHORIZATION, HeaderName, HeaderValue},
+        header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderName, HeaderValue},
         status::StatusCode,
     },
 };
@@ -66,11 +66,17 @@ static USER_AGENT: &str = concat!(
 /// The default base GitHub REST API URL
 static GITHUB_API_URL: &str = "https://api.github.com";
 
+/// The default base GitHub GraphQL API URL
+static GITHUB_GRAPHQL_URL: &str = "https://api.github.com/graphql";
+
 /// The default value of the `Accept` header sent in requests
 static ACCEPT_VALUE: &str = "application/vnd.github+json";
 
 /// The name of the `X-GitHub-Api-Version` header
 const API_VERSION_HEADER: HeaderName = HeaderName::from_static("x-github-api-version");
+
+/// The name of the `X-GitHub-Next-Global-Id` header
+const NEXT_GLOBAL_ID_HEADER: HeaderName = HeaderName::from_static("x-github-next-global-id");
 
 /// The default value of the `X-GitHub-Api-Version` header sent in requests
 static API_VERSION_VALUE: &str = "2026-03-10";
@@ -78,14 +84,21 @@ static API_VERSION_VALUE: &str = "2026-03-10";
 /// Delay between consecutive requests that use mutating methods
 const MUTATION_DELAY: Duration = Duration::from_secs(1);
 
-/// A client for the GitHub REST API
+/// A client for the GitHub API
 #[derive(Clone, Debug)]
 pub struct Client {
     /// The inner [`ureq::Agent`]
     inner: Agent,
 
-    /// The base API URL
+    /// The base REST API URL
     api_url: Url,
+
+    /// The URL used for GraphQL requests
+    graphql_url: Url,
+
+    /// The API version specified in the `X-GitHub-Api-Version` header of REST
+    /// API requests
+    api_version: HeaderValue,
 
     /// The timestamp of the most recent request, if any, made with this client
     /// that used a mutating method
@@ -152,47 +165,15 @@ impl Client {
         url: Url,
         payload: Option<&T>,
     ) -> Result<Response<Body>, RequestError> {
-        if method.is_mutating()
-            && let Some(lastmut) = self.last_mutation.get()
-        {
-            let delay =
-                MUTATION_DELAY.saturating_sub(Instant::now().saturating_duration_since(lastmut));
-            if !delay.is_zero() {
-                log::debug!("Sleeping for {delay:?} between mutating requests");
-                sleep(delay);
-            }
+        Requestor {
+            client: self,
+            method,
+            url,
+            payload,
+            mutating: method.is_mutating(),
+            headers: HeaderMap::from_iter([(API_VERSION_HEADER, self.api_version.clone())]),
         }
-        let mut retrier = Retrier::new(method, url.clone());
-        loop {
-            if method.is_mutating() {
-                self.last_mutation.set(Some(Instant::now()));
-            }
-            let req = match method {
-                Method::Get => self.inner.get(url.as_str()).force_send_body(),
-                //Method::Head => self.inner.head(url).force_send_body(),
-                Method::Post => self.inner.post(url.as_str()),
-                Method::Put => self.inner.put(url.as_str()),
-                Method::Patch => self.inner.patch(url.as_str()),
-                Method::Delete => self.inner.delete(url.as_str()).force_send_body(),
-            };
-            log::debug!("{method} {url}");
-            let resp = if let Some(p) = payload {
-                req.send_json(p)
-            } else {
-                req.send_empty()
-            };
-            match &resp {
-                Ok(r) => log::debug!("Server returned {}", r.status()),
-                Err(e) => log::debug!("Request failed: {e}"),
-            };
-            match retrier.handle(resp)? {
-                RetryDecision::Success(r) => return Ok(r),
-                RetryDecision::Retry(delay) => {
-                    log::debug!("Waiting {delay:?} and then retrying request");
-                    sleep(delay);
-                }
-            }
-        }
+        .run()
     }
 
     /// Make an HTTP request with method `method` to `path`.  `path` may be
@@ -212,16 +193,15 @@ impl Client {
         path: &str,
         payload: Option<&T>,
     ) -> Result<U, RequestError> {
-        let url = self.mkurl(path)?;
-        let mut r = self.request::<T>(method, url.clone(), payload)?;
-        match r.body_mut().read_json::<U>() {
-            Ok(val) => Ok(val),
-            Err(source) => Err(RequestError::Deserialize {
-                method,
-                url,
-                source: Box::new(source),
-            }),
+        Requestor {
+            client: self,
+            method,
+            url: self.mkurl(path)?,
+            payload,
+            mutating: method.is_mutating(),
+            headers: HeaderMap::from_iter([(API_VERSION_HEADER, self.api_version.clone())]),
         }
+        .run_for_json()
     }
 
     /// Make a GET request to `path`.  `path` may be either a complete URL or
@@ -317,6 +297,43 @@ impl Client {
     pub fn paginate<T: DeserializeOwned>(&self, path: &str) -> PaginationIter<'_, T> {
         PaginationIter::new(self, path)
     }
+
+    /// Make a GraphQL request to the GraphQL API URL.  `query` must be the
+    /// GraphQL query string, and `variables` must serialize to a JSON object
+    /// giving the names & values of any variables used in the query string.
+    ///
+    /// Unlike with other methods, requests performed via `graphql()` will have
+    /// the following headers:
+    ///
+    /// - `Accept` — Set to `"*/*"`
+    /// - `X-GitHub-Api-Version` — Not set
+    /// - `X-GitHub-Next-Global-ID` — Set to `"1"`
+    ///
+    /// In addition, requests performed via this method will not incur an
+    /// inter-mutation delay despite using the POST method.
+    ///
+    /// Deserializes the response body as `U` and returns the result.
+    ///
+    /// See [`request()`][Client::request] for information on lower-level
+    /// behavior.
+    pub fn graphql<'a, T: Serialize, U: DeserializeOwned>(
+        &self,
+        query: &'a str,
+        variables: &'a T,
+    ) -> Result<U, RequestError> {
+        Requestor {
+            client: self,
+            method: Method::Post,
+            url: self.graphql_url.clone(),
+            payload: Some(&QueryPayload { query, variables }),
+            mutating: false,
+            headers: HeaderMap::from_iter([
+                (ACCEPT, HeaderValue::from_static("*/*")),
+                (NEXT_GLOBAL_ID_HEADER, HeaderValue::from_static("1")),
+            ]),
+        }
+        .run_for_json()
+    }
 }
 
 /// A builder for [`Client`] values
@@ -325,6 +342,7 @@ pub struct ClientBuilder {
     token: Option<String>,
     user_agent: Cow<'static, str>,
     api_url: Url,
+    graphql_url: Url,
     api_version: Cow<'static, str>,
     accept: Cow<'static, str>,
 }
@@ -335,10 +353,14 @@ impl ClientBuilder {
         let Ok(api_url) = Url::parse(GITHUB_API_URL) else {
             unreachable!("GITHUB_API_URL should be a valid URL");
         };
+        let Ok(graphql_url) = Url::parse(GITHUB_GRAPHQL_URL) else {
+            unreachable!("GITHUB_GRAPHQL_URL should be a valid URL");
+        };
         ClientBuilder {
             token: None,
             user_agent: Cow::from(USER_AGENT),
             api_url,
+            graphql_url,
             api_version: Cow::from(API_VERSION_VALUE),
             accept: Cow::from(ACCEPT_VALUE),
         }
@@ -374,8 +396,17 @@ impl ClientBuilder {
         self
     }
 
-    /// Set the value of the `X-GitHub-Api-Version` header in requests sent by
-    /// the client.
+    /// Set the URL to which GraphQL API requests will be sent.
+    ///
+    /// By default, the GitHub GraphQL API URL is set to
+    /// `"https://api.github.com/graphql"`.
+    pub fn with_graphql_url(mut self, graphql_url: Url) -> Self {
+        self.graphql_url = graphql_url;
+        self
+    }
+
+    /// Set the value of the `X-GitHub-Api-Version` header in REST requests
+    /// sent by the client.
     ///
     /// By default, `X-GitHub-Api-Version` is set to `"2026-03-10"`.
     pub fn with_api_version(mut self, api_version: &str) -> Self {
@@ -383,7 +414,8 @@ impl ClientBuilder {
         self
     }
 
-    /// Set the value of the `Accept` header in requests sent by the client.
+    /// Set the value of the `Accept` header in REST requests sent by the
+    /// client.
     ///
     /// By default, the `Accept` header is set to
     /// `"application/vnd.github+json"`.
@@ -414,7 +446,7 @@ impl ClientBuilder {
         } else {
             None
         };
-        let api_version_value = HeaderValue::from_str(&self.api_version).map_err(|source| {
+        let api_version = HeaderValue::from_str(&self.api_version).map_err(|source| {
             BuildClientError::InvalidHeaderValue {
                 header: API_VERSION_HEADER,
                 source,
@@ -432,8 +464,6 @@ impl ClientBuilder {
                     if let Some(a) = auth.clone() {
                         req.headers_mut().insert(AUTHORIZATION, a);
                     }
-                    req.headers_mut()
-                        .insert(API_VERSION_HEADER, api_version_value.clone());
                     next.handle(req)
                 },
             )
@@ -442,6 +472,8 @@ impl ClientBuilder {
         Ok(Client {
             inner,
             api_url: self.api_url,
+            graphql_url: self.graphql_url,
+            api_version,
             last_mutation: Cell::new(None),
         })
     }
@@ -451,6 +483,104 @@ impl Default for ClientBuilder {
     fn default() -> ClientBuilder {
         ClientBuilder::new()
     }
+}
+
+/// Struct for performing an API request
+#[derive(Clone, Debug)]
+struct Requestor<'a, T> {
+    /// The `Client` instance
+    client: &'a Client,
+
+    /// The request's method
+    method: Method,
+
+    /// The URL to which the request is to be sent
+    url: Url,
+
+    /// Extra headers to set on the request
+    headers: HeaderMap<HeaderValue>,
+
+    /// If non-`None`, `payload` is serialized as JSON and sent as the request
+    /// body
+    payload: Option<&'a T>,
+
+    /// Whether this should be considered a mutating request and thus eligible
+    /// for a delay of up to one second
+    mutating: bool,
+}
+
+impl<T: Serialize> Requestor<'_, T> {
+    /// Perform the request and return the response
+    fn run(self) -> Result<Response<Body>, RequestError> {
+        if self.mutating
+            && let Some(lastmut) = self.client.last_mutation.get()
+        {
+            let delay =
+                MUTATION_DELAY.saturating_sub(Instant::now().saturating_duration_since(lastmut));
+            if !delay.is_zero() {
+                log::debug!("Sleeping for {delay:?} between mutating requests");
+                sleep(delay);
+            }
+        }
+        let mut retrier = Retrier::new(self.method, self.url.clone());
+        loop {
+            if self.mutating {
+                self.client.last_mutation.set(Some(Instant::now()));
+            }
+            let mut req = match self.method {
+                Method::Get => self.client.inner.get(self.url.as_str()).force_send_body(),
+                //Method::Head => self.inner.head(self.url).force_send_body(),
+                Method::Post => self.client.inner.post(self.url.as_str()),
+                Method::Put => self.client.inner.put(self.url.as_str()),
+                Method::Patch => self.client.inner.patch(self.url.as_str()),
+                Method::Delete => self
+                    .client
+                    .inner
+                    .delete(self.url.as_str())
+                    .force_send_body(),
+            };
+            log::debug!("{} {}", self.method, self.url);
+            if let Some(map) = req.headers_mut() {
+                map.extend(self.headers.clone());
+            }
+            let resp = if let Some(p) = self.payload {
+                req.send_json(p)
+            } else {
+                req.send_empty()
+            };
+            match &resp {
+                Ok(r) => log::debug!("Server returned {}", r.status()),
+                Err(e) => log::debug!("Request failed: {e}"),
+            };
+            match retrier.handle(resp)? {
+                RetryDecision::Success(r) => return Ok(r),
+                RetryDecision::Retry(delay) => {
+                    log::debug!("Waiting {delay:?} and then retrying request");
+                    sleep(delay);
+                }
+            }
+        }
+    }
+
+    /// Perform the request and return the response body deserialized as JSON
+    fn run_for_json<U: DeserializeOwned>(self) -> Result<U, RequestError> {
+        let method = self.method;
+        let url = self.url.clone();
+        match self.run()?.body_mut().read_json::<U>() {
+            Ok(val) => Ok(val),
+            Err(source) => Err(RequestError::Deserialize {
+                method,
+                url,
+                source: Box::new(source),
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+struct QueryPayload<'a, T> {
+    query: &'a str,
+    variables: &'a T,
 }
 
 /// The HTTP methods supported by `minigh`

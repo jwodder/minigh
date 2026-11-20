@@ -1,0 +1,21 @@
+[package]
+name = "list-repos-gql"
+edition.workspace = true
+rust-version.workspace = true
+#description = ...
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+gh-token.workspace = true
+indoc.workspace = true
+minigh = { path = "../.." }
+serde.workspace = true
+serde_json.workspace = true
+url = { workspace = true, features = ["serde"] }
+
+[lints]
+workspace = true

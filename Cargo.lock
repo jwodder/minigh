@@ -476,6 +476,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "list-repos-gql"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "gh-token",
+ "indoc",
+ "minigh",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "litemap"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -507,7 +521,7 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "minigh"
-version = "0.3.0"
+version = "0.4.0-dev"
 dependencies = [
  "indenter",
  "indoc",
