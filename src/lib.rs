@@ -32,22 +32,21 @@
 //! `minigh` uses the [`log`] crate to log events.  All messages are currently
 //! logged at the `DEBUG` level.
 mod page;
-mod util;
+mod request;
 pub use crate::page::*;
-use crate::util::*;
+use crate::request::MiniRequest;
 use indenter::indented;
 use serde::{Serialize, de::DeserializeOwned};
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::fmt::{self, Write};
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use thiserror::Error;
 use ureq::{
     Agent, Body,
     http::{
         Response,
-        header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderName, HeaderValue},
+        header::{ACCEPT, AUTHORIZATION, HeaderName, HeaderValue},
         status::StatusCode,
     },
 };
@@ -80,9 +79,6 @@ const NEXT_GLOBAL_ID_HEADER: HeaderName = HeaderName::from_static("x-github-next
 
 /// The default value of the `X-GitHub-Api-Version` header sent in requests
 static API_VERSION_VALUE: &str = "2026-03-10";
-
-/// Delay between consecutive requests that use mutating methods
-const MUTATION_DELAY: Duration = Duration::from_secs(1);
 
 /// A client for the GitHub API
 #[derive(Clone, Debug)]
@@ -165,15 +161,11 @@ impl Client {
         url: Url,
         payload: Option<&T>,
     ) -> Result<Response<Body>, RequestError> {
-        Requestor {
-            client: self,
-            method,
-            url,
-            payload,
-            mutating: method.is_mutating(),
-            headers: HeaderMap::from_iter([(API_VERSION_HEADER, self.api_version.clone())]),
-        }
-        .run()
+        MiniRequest::builder(self, method, url)
+            .payload(payload)
+            .header(API_VERSION_HEADER, self.api_version.clone())
+            .build()
+            .run()
     }
 
     /// Make an HTTP request with method `method` to `path`.  `path` may be
@@ -193,15 +185,11 @@ impl Client {
         path: &str,
         payload: Option<&T>,
     ) -> Result<U, RequestError> {
-        Requestor {
-            client: self,
-            method,
-            url: self.mkurl(path)?,
-            payload,
-            mutating: method.is_mutating(),
-            headers: HeaderMap::from_iter([(API_VERSION_HEADER, self.api_version.clone())]),
-        }
-        .run_for_json()
+        MiniRequest::builder(self, method, self.mkurl(path)?)
+            .payload(payload)
+            .header(API_VERSION_HEADER, self.api_version.clone())
+            .build()
+            .run_for_json()
     }
 
     /// Make a GET request to `path`.  `path` may be either a complete URL or
@@ -321,18 +309,13 @@ impl Client {
         query: &'a str,
         variables: &'a T,
     ) -> Result<U, RequestError> {
-        Requestor {
-            client: self,
-            method: Method::Post,
-            url: self.graphql_url.clone(),
-            payload: Some(&QueryPayload { query, variables }),
-            mutating: false,
-            headers: HeaderMap::from_iter([
-                (ACCEPT, HeaderValue::from_static("*/*")),
-                (NEXT_GLOBAL_ID_HEADER, HeaderValue::from_static("1")),
-            ]),
-        }
-        .run_for_json()
+        MiniRequest::builder(self, Method::Post, self.graphql_url.clone())
+            .payload(Some(&QueryPayload { query, variables }))
+            .mutating(false)
+            .header(ACCEPT, HeaderValue::from_static("*/*"))
+            .header(NEXT_GLOBAL_ID_HEADER, HeaderValue::from_static("1"))
+            .build()
+            .run_for_json()
     }
 }
 
@@ -482,98 +465,6 @@ impl ClientBuilder {
 impl Default for ClientBuilder {
     fn default() -> ClientBuilder {
         ClientBuilder::new()
-    }
-}
-
-/// Struct for performing an API request
-#[derive(Clone, Debug)]
-struct Requestor<'a, T> {
-    /// The `Client` instance
-    client: &'a Client,
-
-    /// The request's method
-    method: Method,
-
-    /// The URL to which the request is to be sent
-    url: Url,
-
-    /// Extra headers to set on the request
-    headers: HeaderMap<HeaderValue>,
-
-    /// If non-`None`, `payload` is serialized as JSON and sent as the request
-    /// body
-    payload: Option<&'a T>,
-
-    /// Whether this should be considered a mutating request and thus eligible
-    /// for a delay of up to one second
-    mutating: bool,
-}
-
-impl<T: Serialize> Requestor<'_, T> {
-    /// Perform the request and return the response
-    fn run(self) -> Result<Response<Body>, RequestError> {
-        if self.mutating
-            && let Some(lastmut) = self.client.last_mutation.get()
-        {
-            let delay =
-                MUTATION_DELAY.saturating_sub(Instant::now().saturating_duration_since(lastmut));
-            if !delay.is_zero() {
-                log::debug!("Sleeping for {delay:?} between mutating requests");
-                sleep(delay);
-            }
-        }
-        let mut retrier = Retrier::new(self.method, self.url.clone());
-        loop {
-            if self.mutating {
-                self.client.last_mutation.set(Some(Instant::now()));
-            }
-            let mut req = match self.method {
-                Method::Get => self.client.inner.get(self.url.as_str()).force_send_body(),
-                //Method::Head => self.inner.head(self.url).force_send_body(),
-                Method::Post => self.client.inner.post(self.url.as_str()),
-                Method::Put => self.client.inner.put(self.url.as_str()),
-                Method::Patch => self.client.inner.patch(self.url.as_str()),
-                Method::Delete => self
-                    .client
-                    .inner
-                    .delete(self.url.as_str())
-                    .force_send_body(),
-            };
-            log::debug!("{} {}", self.method, self.url);
-            if let Some(map) = req.headers_mut() {
-                map.extend(self.headers.clone());
-            }
-            let resp = if let Some(p) = self.payload {
-                req.send_json(p)
-            } else {
-                req.send_empty()
-            };
-            match &resp {
-                Ok(r) => log::debug!("Server returned {}", r.status()),
-                Err(e) => log::debug!("Request failed: {e}"),
-            };
-            match retrier.handle(resp)? {
-                RetryDecision::Success(r) => return Ok(r),
-                RetryDecision::Retry(delay) => {
-                    log::debug!("Waiting {delay:?} and then retrying request");
-                    sleep(delay);
-                }
-            }
-        }
-    }
-
-    /// Perform the request and return the response body deserialized as JSON
-    fn run_for_json<U: DeserializeOwned>(self) -> Result<U, RequestError> {
-        let method = self.method;
-        let url = self.url.clone();
-        match self.run()?.body_mut().read_json::<U>() {
-            Ok(val) => Ok(val),
-            Err(source) => Err(RequestError::Deserialize {
-                method,
-                url,
-                source: Box::new(source),
-            }),
-        }
     }
 }
 

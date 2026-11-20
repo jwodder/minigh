@@ -1,8 +1,11 @@
-use super::util::get_next_link;
 use super::{Client, Method, RequestError};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::collections::HashMap;
 use thiserror::Error;
+use ureq::{
+    Body,
+    http::{header::LINK, response::Response},
+};
 use url::Url;
 
 /// An iterator that performs paginated GET requests and yields the returned
@@ -168,6 +171,15 @@ impl<T> MapPageValue<T> {
 enum ParsePageError {
     #[error("expected exactly one array of items in map page response, got {0}")]
     ListQty(usize),
+}
+
+/// Return the `rel="next"` URL, if any, from the response's "Link" header
+fn get_next_link(r: &Response<Body>) -> Option<Url> {
+    let header_value = r.headers().get(LINK)?.to_str().ok()?;
+    parse_link_header::parse_with_rel(header_value)
+        .ok()?
+        .get("next")
+        .map(|link| link.uri.clone())
 }
 
 #[cfg(test)]
